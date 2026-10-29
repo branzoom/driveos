@@ -43,7 +43,7 @@
   const bodyType = HIDDEN_BODIES.includes(store.get('body', 'cybertruck')) ? 'cybertruck' : store.get('body', 'cybertruck');
   const S = {
     skin: store.get('skin', 'tesla'), themePref: store.get('theme.v2', 'dark'),
-    body: bodyType, carName: ['我的掀背车', '我的皮卡'].includes(store.get('carName', '')) ? BODY_NAMES[bodyType] : store.get('carName', BODY_NAMES[bodyType]), owner: store.get('owner', 'Tim'), paint: store.get('paint', '#e9eaec'), finish: store.get('finish', '原厂漆'), tail: store.get('tail', '原厂'),
+    body: bodyType, carName: ['我的掀背车', '我的皮卡'].includes(store.get('carName', '')) ? BODY_NAMES[bodyType] : store.get('carName', BODY_NAMES[bodyType]), owner: store.get('owner', 'Tim'), paint: store.get('paint', '#f0f7ff'), finish: store.get('finish', '电镀'), tail: store.get('tail', '原厂'),
     gear: 'P', speed: 0, cruise: 60, braking: false, ap: false, signal: null, hazard: false, limit: 60,
     battery: 78, showKm: false, odometer: 12843, trip: { km: 0, sec: 0 }, split: store.get('split', 700),
     locked: false, frunk: false, trunk: false, port: false, folded: false, childLock: false, windowLock: false, glovebox: false,
