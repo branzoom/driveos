@@ -1,0 +1,18 @@
+.DS_Store
+*.bak
+*.bak.*
+.env
+.env.*
+node_modules/
+# 网易云登录 cookie（正常存放在 ~/.driveos/，万一复制进项目也不要提交）
+netease-cookie.json
+*cookie*.json
+.driveos/
+# 仅限个人非商业使用的第三方车模，不得随仓库分发
+models/tesla-model-y.glb
+# 用户自备的音效（版权不明）
+sounds/*.wav
+sounds/*.mp3
+sounds/*.m4a
+sounds/*.ogg
+sounds/*.aac

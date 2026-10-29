@@ -1,0 +1,980 @@
+/* ===================================================================
+   DriveOS — Tesla 风格 + CarPlay 风格车机界面
+   设计画布固定为 1920×1200（Tesla 15.4" 中控屏分辨率），按窗口等比缩放
+   =================================================================== */
+:root {
+  --font: "Inter", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+  --page: #0c0d0f;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--page); overflow: hidden; }
+body { font-family: var(--font); color: #e8e8e8; -webkit-font-smoothing: antialiased; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; padding: 0; }
+.ic { display: block; flex: none; }
+
+/* ---------------- 页面外层（演示工具条 + 屏幕边框） ---------------- */
+#page { height: 100%; display: flex; flex-direction: column; align-items: center; }
+.devbar { width: 100%; height: 52px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; gap: 16px; }
+.brand { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.brand b { font-size: 15px; letter-spacing: .02em; }
+.brand span { color: #7d838a; font-size: 12px; }
+.devbar-controls { display: flex; gap: 10px; align-items: center; flex-wrap: nowrap; overflow-x: auto; }
+.dev-seg { display: flex; background: #1c1e21; border-radius: 9px; padding: 3px; }
+.dev-seg button { padding: 6px 12px; border-radius: 7px; font-size: 12px; color: #9aa0a6; white-space: nowrap; }
+.dev-seg button.on { background: #3a3d42; color: #fff; }
+.dev-btn, .devbar select { background: #1c1e21; border-radius: 9px; padding: 7px 12px; font-size: 12px; color: #c8ccd0; border: 0; white-space: nowrap; }
+.devbar select { appearance: none; padding-right: 26px; background-image: linear-gradient(45deg, transparent 50%, #888 50%), linear-gradient(135deg, #888 50%, transparent 50%); background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.keys-pop { position: fixed; top: 58px; right: 20px; background: #1c1e21; border: 1px solid #2c2f33; border-radius: 12px; padding: 14px 18px; font-size: 12px; color: #c3c7cb; line-height: 2.1; z-index: 100; display: none; box-shadow: 0 20px 50px #0008; }
+.keys-pop.show { display: block; }
+.keys-pop h4 { margin: 0 0 4px; font-size: 13px; color: #fff; }
+kbd { display: inline-block; min-width: 22px; text-align: center; padding: 0 6px; margin-right: 3px; border-radius: 5px; background: #2c2f33; border-bottom: 2px solid #111; font-family: var(--font); font-size: 11px; line-height: 20px; color: #fff; }
+
+.bezel { position: relative; flex: 1; width: 100%; min-height: 0; }
+#stage {
+  position: absolute; left: 50%; top: 50%; width: 1920px; height: 1200px;
+  transform-origin: 0 0; overflow: hidden; border-radius: 26px;
+  box-shadow: 0 0 0 12px #050506, 0 0 0 13px #2a2c30, 0 40px 120px #000c;
+  font-size: 22px; user-select: none; -webkit-user-select: none;
+}
+.skin { position: absolute; inset: 0; display: none; }
+.skin.active { display: block; }
+
+/* ---------------- Tesla 主题变量 ---------------- */
+#stage {
+  --bg: #f4f4f4; --car-bg1: #f7f7f8; --car-bg2: #e9eaec;
+  --panel: #ffffff; --panel2: #f3f3f4; --panel3: #e9e9eb; --hover: #ececee;
+  --text: #171a20; --sub: #5c5e62; --muted: #8e8f93; --line: #e4e4e6;
+  --accent: #3e6ae1; --accent-soft: #e7eeff; --green: #18a957; --red: #e31937; --amber: #f5a524;
+  --dock: #ffffff; --shadow: 0 6px 30px rgba(20, 24, 32, .12); --shadow-sm: 0 2px 10px rgba(20, 24, 32, .08);
+  --seg-bg: #ebebed; --seg-on: #ffffff; --glass: rgba(255, 255, 255, .86);
+  color: var(--text); background: var(--bg);
+}
+/* 深色：参照新版（2024 v12）车机——近黑底、中性灰半透明卡片、偏灰白的文字 */
+#stage.dark {
+  --bg: #0b0b0b; --car-bg1: #111111; --car-bg2: #161616;
+  --panel: #1c1c1c; --panel2: #262626; --panel3: #303030; --hover: #2a2a2a;
+  --text: #e5e5e5; --sub: #a3a3a3; --muted: #6f6f6f; --line: #262626;
+  --accent: #4d7cff; --accent-soft: #1d2a4d; --dock: #000000;
+  --shadow: 0 8px 36px rgba(0, 0, 0, .55); --shadow-sm: 0 2px 10px rgba(0, 0, 0, .4);
+  --seg-bg: #262626; --seg-on: #404040; --glass: rgba(38, 38, 38, .82);
+}
+
+/* ---------------- 车辆区（左） ---------------- */
+.carpane { position: absolute; left: 0; top: 0; width: var(--split, 700px); bottom: 100px; background: linear-gradient(180deg, var(--car-bg1), var(--car-bg2)); overflow: hidden; }
+#car3d { position: absolute; inset: 0; }
+#car3d canvas { width: 100% !important; height: 100% !important; display: block; cursor: grab; }
+#car3d canvas:active { cursor: grabbing; }
+.car-top { position: absolute; top: 26px; left: 46px; right: 34px; display: flex; align-items: center; gap: 26px; pointer-events: none; z-index: 3; }
+.gears { display: flex; gap: 14px; font-size: 25px; font-weight: 500; color: var(--muted); pointer-events: auto; }
+.gears button { color: inherit; font-weight: 500; width: 22px; text-align: center; transition: color .2s; }
+.gears button.on { color: var(--text); font-weight: 700; }
+.car-indicators { display: flex; gap: 10px; color: var(--green); }
+.car-indicators .blue { color: var(--accent); }
+.battery-chip { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 23px; font-weight: 500; pointer-events: auto; cursor: pointer; }
+.batt { position: relative; width: 44px; height: 20px; border: 2px solid var(--sub); border-radius: 5px; padding: 2px; }
+.batt::after { content: ""; position: absolute; right: -6px; top: 5px; width: 3px; height: 6px; border-radius: 0 2px 2px 0; background: var(--sub); }
+.batt i { display: block; height: 100%; border-radius: 2px; background: var(--text); transition: width .6s; }
+.batt.charging i { background: var(--green); }
+.batt.low i { background: var(--red); }
+
+.drive-hud { position: absolute; top: 76px; left: 46px; right: 34px; display: flex; align-items: center; gap: 22px; opacity: 0; transform: translateY(-10px); transition: .45s; pointer-events: none; z-index: 3; }
+.carpane.driving .drive-hud { opacity: 1; transform: none; pointer-events: auto; }
+.speed { display: flex; flex-direction: column; align-items: center; min-width: 120px; }
+.speed b { font-size: 92px; line-height: 1; font-weight: 600; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.speed span { font-size: 18px; color: var(--sub); margin-top: 2px; }
+.signal { width: 40px; height: 40px; color: var(--green); opacity: .1; }
+.signal.on { animation: blink .76s steps(1) infinite; }
+@keyframes blink { 0% { opacity: 1; } 50% { opacity: .1; } }
+.hazard-btn { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; color: var(--red); background: var(--panel2); margin-left: auto; transition: .2s; }
+.hazard-btn.on { background: var(--red); color: #fff; animation: blink .76s steps(1) infinite; }
+.limit { width: 64px; height: 64px; border-radius: 50%; border: 6px solid var(--red); background: #fff; color: #111; display: grid; place-items: center; font-weight: 700; font-size: 25px; }
+.ap-btn { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); background: var(--panel2); transition: .25s; }
+.ap-btn.on { color: #fff; background: var(--accent); box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent); }
+.ap-banner { position: absolute; left: 50%; top: 210px; transform: translate(-50%, -10px); padding: 12px 22px; border-radius: 30px; background: var(--accent); color: #fff; font-size: 19px; font-weight: 500; opacity: 0; transition: .3s; pointer-events: none; white-space: nowrap; z-index: 4; }
+.ap-banner.show { opacity: 1; transform: translate(-50%, 0); }
+.ap-banner.warn { background: var(--red); }
+
+.car-meta { position: absolute; left: 0; right: 0; top: 104px; text-align: center; transition: .4s; z-index: 2; pointer-events: none; }
+.car-meta h2 { margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -.01em; }
+.car-meta p { margin: 6px 0 0; font-size: 18px; color: var(--sub); }
+.carpane.driving .car-meta, .carpane.driving .car-labels { opacity: 0; pointer-events: none; }
+#tesla .car-meta { display: none; } /* 新版界面不显示车名，续航见右上角电量 */
+
+.car-labels { position: absolute; inset: 0; pointer-events: none; transition: opacity .3s; z-index: 2; }
+.car-label { position: absolute; transform: translate(-50%, calc(-100% - 64px)); pointer-events: auto; text-align: center; font-size: 17px; line-height: 1.25; color: var(--text); font-weight: 500; padding: 6px 10px; border-radius: 10px; transition: background .2s; white-space: nowrap; }
+.car-label small { display: block; font-size: 15px; font-weight: 600; }
+.car-label:hover { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.car-label.icon { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; padding: 0; transform: translate(-50%, -50%); }
+/* 新版 UI：「打开 / 前备箱」用一根细竖线指向车身对应位置 */
+.car-label:not(.icon) { font-size: 16px; font-weight: 500; color: var(--sub); }
+.car-label:not(.icon) small { font-size: 19px; color: var(--text); }
+.car-label:not(.icon)::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 64px; background: color-mix(in srgb, var(--text) 35%, transparent); }
+.car-label:not(.icon)::before { content: ""; position: absolute; left: 50%; top: calc(100% + 64px); width: 7px; height: 7px; margin: -3px 0 0 -3px; border-radius: 50%; background: color-mix(in srgb, var(--text) 55%, transparent); }
+.car-label.icon.on { color: var(--green); }
+.car-label.lockbtn.locked { color: var(--text); }
+
+.gear-strip { position: absolute; left: 0; top: 120px; bottom: 120px; width: 44px; z-index: 5; touch-action: none; cursor: ns-resize; }
+.gear-strip::before { content: ""; position: absolute; left: 10px; top: 50%; width: 5px; height: 90px; margin-top: -45px; border-radius: 3px; background: var(--muted); opacity: .35; transition: .2s; }
+.gear-strip:hover::before { opacity: .7; }
+.gear-pop { position: absolute; left: 14px; top: 50%; width: 92px; height: 330px; margin-top: -165px; border-radius: 46px; background: var(--glass); box-shadow: var(--shadow); backdrop-filter: blur(18px); display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 26px 0; opacity: 0; transform: scale(.9); transition: .2s; pointer-events: none; }
+.gear-strip.active .gear-pop { opacity: 1; transform: none; }
+.gear-pop span { font-size: 30px; font-weight: 600; color: var(--muted); width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; transition: .15s; }
+.gear-pop span.on { background: var(--accent); color: #fff; }
+
+/* ---------------- 地图区（右） ---------------- */
+.mappane { position: absolute; left: var(--split, 700px); right: 0; top: 0; bottom: 100px; overflow: hidden; background: #e8e9ea; }
+.map-host, #map { position: absolute; inset: 0; }
+#map.dark.offline-map canvas { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.7); }
+.map-fade { position: absolute; left: 0; right: 0; top: 0; height: 120px; background: linear-gradient(var(--bg), transparent); opacity: .55; pointer-events: none; }
+.offline-map canvas { position: absolute; inset: 0; }
+.offline-map .car-marker { position: absolute; left: 50%; top: 55%; margin: -26px 0 0 -26px; }
+.offline-note { position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%); background: var(--glass); color: var(--sub); padding: 8px 16px; border-radius: 20px; font-size: 15px; box-shadow: var(--shadow-sm); }
+.maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { display: none; }
+
+.car-marker { width: 52px; height: 52px; display: grid; place-items: center; }
+.car-marker svg { width: 34px; height: 34px; fill: #3e6ae1; stroke: #fff; stroke-width: 1.6; position: relative; filter: drop-shadow(0 2px 4px rgba(0,0,0,.35)); }
+.car-marker .halo { position: absolute; width: 52px; height: 52px; border-radius: 50%; background: rgba(62,106,225,.18); animation: halo 2.4s ease-out infinite; }
+@keyframes halo { 0% { transform: scale(.6); opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+.dest-marker { width: 44px; height: 44px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: #e31937; display: grid; place-items: center; color: #fff; box-shadow: 0 4px 10px rgba(0,0,0,.3); }
+.dest-marker svg { transform: rotate(45deg); }
+.charger-pin { display: flex; align-items: center; gap: 4px; background: #e31937; color: #fff; border-radius: 14px; padding: 6px 10px 6px 7px; font-size: 14px; font-weight: 600; box-shadow: 0 3px 10px rgba(0,0,0,.3); position: relative; }
+.charger-pin::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: #e31937; }
+
+/* 顶部状态栏 */
+.statusbar { position: absolute; top: 0; right: 0; height: 74px; display: flex; align-items: center; gap: 26px; padding: 0 34px; font-size: 21px; font-weight: 500; z-index: 6; color: var(--text); }
+.statusbar > * { display: flex; align-items: center; gap: 8px; }
+.statusbar button { display: flex; align-items: center; gap: 8px; padding: 8px; margin: -8px; border-radius: 10px; }
+.statusbar .sentry-on { color: var(--red); }
+.statusbar .muted { color: var(--sub); }
+.statusbar .profile { background: var(--glass); padding: 8px 16px 8px 10px; margin: 0; border-radius: 22px; box-shadow: var(--shadow-sm); }
+
+/* 导航搜索 / 路线卡片 */
+.nav-box { position: absolute; top: 18px; left: 22px; width: 520px; z-index: 7; }
+.nav-search { height: 72px; border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); display: flex; align-items: center; gap: 16px; padding: 0 22px; color: var(--sub); }
+.nav-search input { flex: 1; border: 0; outline: 0; background: none; font-size: 23px; color: var(--text); min-width: 0; }
+.nav-search input::placeholder { color: var(--muted); }
+.nav-drop { margin-top: 10px; border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); max-height: 760px; overflow: auto; }
+.nav-drop .chips { display: flex; gap: 10px; padding: 18px 18px 6px; flex-wrap: wrap; }
+.chip { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 22px; background: var(--panel2); font-size: 18px; color: var(--text); }
+.chip:hover { background: var(--panel3); }
+.drop-title { padding: 18px 22px 6px; font-size: 16px; color: var(--muted); font-weight: 500; }
+.place { display: flex; align-items: center; gap: 18px; width: 100%; text-align: left; padding: 16px 22px; border-bottom: 1px solid var(--line); }
+.place:last-child { border-bottom: 0; }
+.place:hover { background: var(--hover); }
+.place .pi { width: 46px; height: 46px; border-radius: 50%; background: var(--panel2); display: grid; place-items: center; color: var(--sub); flex: none; }
+.place b { display: block; font-size: 21px; font-weight: 500; }
+.place span { display: block; font-size: 16px; color: var(--muted); margin-top: 3px; }
+.place em { margin-left: auto; font-style: normal; font-size: 17px; color: var(--sub); white-space: nowrap; }
+
+.route-card, .turn-card { border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
+.route-card { padding: 24px; }
+.route-card h3 { margin: 0; font-size: 28px; font-weight: 600; }
+.route-card .addr { color: var(--muted); font-size: 18px; margin-top: 4px; }
+.route-stats { display: flex; gap: 26px; margin: 22px 0; }
+.route-stats div { font-size: 16px; color: var(--muted); }
+.route-stats b { display: block; font-size: 27px; color: var(--text); font-weight: 600; margin-bottom: 2px; }
+.route-stats .green { color: var(--green); }
+.route-actions { display: flex; gap: 12px; }
+.btn { height: 60px; border-radius: 12px; padding: 0 28px; font-size: 20px; font-weight: 500; background: var(--panel2); color: var(--text); display: inline-flex; align-items: center; justify-content: center; gap: 10px; transition: .15s; }
+.btn:hover { background: var(--panel3); }
+.btn.primary { background: var(--accent); color: #fff; flex: 1; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { background: var(--red); color: #fff; }
+.loading { padding: 34px; text-align: center; color: var(--muted); font-size: 19px; }
+
+.turn-main { display: flex; align-items: center; gap: 22px; padding: 24px; background: var(--accent); color: #fff; }
+.turn-main .ic { width: 66px; height: 66px; }
+.turn-main b { font-size: 40px; font-weight: 600; display: block; line-height: 1.1; }
+.turn-main span { font-size: 21px; opacity: .9; }
+.turn-next { display: flex; align-items: center; gap: 14px; padding: 14px 24px; font-size: 18px; color: var(--sub); border-bottom: 1px solid var(--line); }
+.trip-sum { display: flex; align-items: center; gap: 24px; padding: 18px 24px; }
+.trip-sum div { font-size: 15px; color: var(--muted); }
+.trip-sum b { display: block; font-size: 22px; color: var(--text); font-weight: 600; }
+.trip-sum .end { margin-left: auto; width: 54px; height: 54px; border-radius: 50%; background: var(--panel2); display: grid; place-items: center; color: var(--text); }
+
+.map-ctrls { position: absolute; right: 26px; top: 100px; display: flex; flex-direction: column; gap: 12px; z-index: 6; }
+.zoom-ctrls { position: absolute; right: 26px; bottom: 26px; display: flex; flex-direction: column; gap: 0; z-index: 6; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-sm); }
+.mbtn { width: 64px; height: 64px; border-radius: 14px; background: var(--panel); box-shadow: var(--shadow-sm); display: grid; place-items: center; color: var(--text); transition: .15s; }
+.mbtn:hover { background: var(--hover); }
+.mbtn.on { color: var(--accent); }
+.zoom-ctrls .mbtn { border-radius: 0; box-shadow: none; }
+.zoom-ctrls .mbtn + .mbtn { border-top: 1px solid var(--line); }
+.recenter { position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%); }
+
+.charger-card { position: absolute; right: 110px; top: 100px; width: 400px; padding: 22px; border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); z-index: 7; }
+.charger-card h4 { margin: 0 0 6px; font-size: 22px; }
+.charger-card p { margin: 0 0 18px; color: var(--muted); font-size: 17px; }
+
+/* 迷你播放器 */
+.mini-player { position: absolute; left: 22px; bottom: 22px; width: 600px; height: 128px; border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); display: flex; align-items: center; gap: 20px; padding: 0 22px 0 20px; z-index: 6; transition: transform .35s, opacity .35s; overflow: hidden; }
+.mini-player.hidden { transform: translateY(160px); opacity: 0; }
+.art { width: 88px; height: 88px; border-radius: 10px; flex: none; position: relative; overflow: hidden; cursor: pointer; }
+.mp-info { flex: 1; min-width: 0; cursor: pointer; }
+.mp-info b { display: block; font-size: 22px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-info span { display: block; font-size: 17px; color: var(--sub); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-info small { display: block; font-size: 14px; color: var(--muted); margin-top: 6px; }
+.mp-ctrls { display: flex; align-items: center; gap: 6px; }
+.mp-ctrls button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; color: var(--text); }
+.mp-ctrls button:hover { background: var(--hover); }
+.mp-ctrls .fav.on { color: var(--red); }
+.mp-ctrls .fav.on svg { fill: currentColor; }
+.mp-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--line); }
+.mp-progress i { display: block; height: 100%; background: var(--text); width: 0; }
+
+.call-banner { position: absolute; left: 50%; top: 90px; transform: translate(-50%, -30px); opacity: 0; pointer-events: none; width: 560px; padding: 18px 20px; border-radius: 18px; background: #1d1e20; color: #fff; display: flex; align-items: center; gap: 16px; box-shadow: var(--shadow); transition: .3s; z-index: 9; }
+.call-banner.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.call-banner .av { width: 56px; height: 56px; border-radius: 50%; background: #3a3d42; display: grid; place-items: center; font-size: 22px; }
+.call-banner b { display: block; font-size: 21px; }
+.call-banner span { font-size: 16px; color: #aaa; }
+.call-banner .hang { margin-left: auto; width: 58px; height: 58px; border-radius: 50%; background: #e31937; display: grid; place-items: center; }
+
+/* 倒车影像 */
+.cam-overlay { position: absolute; inset: 0; z-index: 8; background: #111; display: none; }
+/* 倒车影像面板：按钮 / 横向来车红条 / 泊车辅助小窗 */
+.cam-overlay { overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; cursor: ew-resize; }
+.rc-btns { position: absolute; top: 18px; left: 18px; display: flex; gap: 10px; z-index: 3; }
+.rc-btn { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; color: #e8ebef; background: rgba(18, 20, 24, .62); border: 1px solid rgba(255, 255, 255, .16); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; transition: background .15s, transform .1s; }
+.rc-btn:active { transform: scale(.92); }
+.rc-btn.on { background: rgba(62, 126, 255, .78); color: #fff; border-color: rgba(255, 255, 255, .3); }
+.rc-alert { position: absolute; top: 0; bottom: 0; width: 13%; opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 2; }
+.rc-alert.rc-l { left: 0; background: linear-gradient(90deg, rgba(255, 32, 32, .85) 0, rgba(255, 32, 32, .38) 22%, rgba(255, 32, 32, 0) 100%); box-shadow: inset 7px 0 0 #ff2a2a; }
+.rc-alert.rc-r { right: 0; background: linear-gradient(270deg, rgba(255, 32, 32, .85) 0, rgba(255, 32, 32, .38) 22%, rgba(255, 32, 32, 0) 100%); box-shadow: inset -7px 0 0 #ff2a2a; }
+.rc-alert.on { opacity: 1; animation: rcPulse .5s ease-in-out infinite alternate; }
+@keyframes rcPulse { from { filter: brightness(.8); } to { filter: brightness(1.25); } }
+.rc-warn { position: absolute; top: 76px; left: 50%; transform: translateX(-50%); padding: 8px 18px; border-radius: 999px; background: rgba(205, 22, 22, .9); color: #fff; font-size: 16px; font-weight: 600; white-space: nowrap; opacity: 0; pointer-events: none; z-index: 3; transition: opacity .12s; box-shadow: 0 4px 18px rgba(255, 30, 30, .45); }
+.rc-warn.on { opacity: 1; }
+.rc-assist { position: absolute; right: 16px; top: 74px; width: 92px; padding: 6px 0 8px; border-radius: 16px; background: rgba(16, 18, 22, .55); border: 1px solid rgba(255, 255, 255, .12); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); text-align: center; display: none; z-index: 2; pointer-events: none; }
+.rc-assist.on { display: block; }
+.rc-assist canvas { width: 80px; height: 98px; display: block; margin: 0 auto; }
+.rc-assist b { display: block; font-size: 15px; font-weight: 600; color: #cfd4da; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.rc-thumbtab { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); width: 56px; height: 24px; display: grid; place-items: center; color: rgba(255, 255, 255, .8); background: rgba(18, 20, 24, .5); border-radius: 12px 12px 0 0; z-index: 3; cursor: pointer; transition: transform .2s; }
+.rc-thumbtab.down svg { transform: rotate(180deg); }
+.rc-fail { position: absolute; inset: 0; z-index: 4; background: #000; color: #e8ebef; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+.rc-fail.on { display: flex; }
+.rc-fail b { font-size: 24px; font-weight: 600; } .rc-fail span { font-size: 16px; color: #9ca3ab; }
+
+.cam-overlay.show { display: block; }
+.cam-overlay canvas { width: 100%; height: 100%; display: block; }
+.cam-tag { position: absolute; top: 24px; left: 24px; background: rgba(0,0,0,.55); color: #fff; padding: 8px 16px; border-radius: 10px; font-size: 17px; }
+
+/* ---------------- 底部 Dock ---------------- */
+.dock { position: absolute; left: 0; right: 0; bottom: 0; height: 100px; background: var(--dock); display: flex; align-items: center; padding: 0 22px; z-index: 20; border-top: 1px solid var(--line); }
+#stage.dark .dock { border-top-color: #151515; }
+.dock-group { display: flex; align-items: center; gap: 6px; }
+.dock-center { flex: 1; justify-content: center; gap: 10px; }
+.dbtn { height: 76px; min-width: 76px; padding: 0 10px; border-radius: 14px; display: grid; place-items: center; color: var(--text); transition: background .15s, transform .1s; position: relative; }
+.dbtn:hover { background: var(--hover); }
+.dbtn:active { transform: scale(.94); }
+.dbtn.on { background: var(--panel3); }
+.dbtn .lv { position: absolute; bottom: 9px; left: 50%; transform: translateX(-50%); display: flex; gap: 3px; }
+.dbtn .lv i { width: 6px; height: 3px; border-radius: 2px; background: var(--muted); opacity: .4; }
+.dbtn .lv i.on { background: #ff6b1a; opacity: 1; }
+.dbtn.heat-on { color: #ff6b1a; }
+.dock-sep { width: 1px; height: 44px; background: var(--line); margin: 0 6px; }
+.temp { display: flex; align-items: center; gap: 2px; }
+.temp .arrow { width: 50px; height: 76px; display: grid; place-items: center; color: var(--sub); border-radius: 12px; }
+.temp .arrow:hover { background: var(--hover); }
+.temp .val { min-width: 96px; text-align: center; font-size: 32px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -.01em; height: 76px; border-radius: 12px; display: grid; place-items: center; }
+.temp .val:hover { background: var(--hover); }
+.temp .val.off { color: var(--muted); font-size: 22px; }
+.app-ic { display: grid; place-items: center; }
+.app-ic .ic { width: 40px; height: 40px; }
+.recent-dot { position: absolute; bottom: 6px; left: 50%; margin-left: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+
+/* 应用颜色（与 Tesla 图标配色接近） */
+.c-phone { color: #18a957; } .c-camera { color: #6f7378; } .c-calendar { color: #e8433d; } .c-energy { color: #18a957; }
+.c-toybox { color: #e8433d; } .c-theater { color: #e8433d; } .c-game { color: #6c5ce7; } .c-browser { color: #3e6ae1; }
+.c-manual { color: #6f7378; } .c-dashcam { color: #e31937; } .c-media { color: #18a957; } .c-charge { color: #18a957; } .c-messages { color: #3e6ae1; }
+#stage.dark .c-camera, #stage.dark .c-manual { color: #b8bcc1; }
+
+/* ---------------- 抽屉面板（控制 / 空调 / 应用） ---------------- */
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 0; z-index: 12; background: var(--panel); box-shadow: 0 -10px 50px rgba(0,0,0,.18); transform: translateY(102%); transition: transform .42s cubic-bezier(.2,.8,.2,1); display: flex; flex-direction: column; }
+.sheet.open { transform: none; }
+.sheet.half { top: auto; height: 620px; border-radius: 22px 22px 0 0; }
+.sheet.tall { top: 70px; border-radius: 22px 22px 0 0; }
+.sheet-handle { height: 30px; flex: none; display: grid; place-items: center; cursor: grab; touch-action: none; }
+.sheet-handle::before { content: ""; width: 64px; height: 6px; border-radius: 3px; background: var(--panel3); }
+.sheet-close { position: absolute; right: 22px; top: 22px; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; color: var(--sub); z-index: 3; }
+.sheet-close:hover { background: var(--hover); }
+.sheet-body { flex: 1; min-height: 0; display: flex; }
+.sheet-title { font-size: 30px; font-weight: 600; padding: 4px 40px 20px; display: flex; align-items: center; gap: 14px; }
+
+/* 控制面板 */
+.ctl-nav { width: 330px; flex: none; border-right: 1px solid var(--line); overflow: auto; padding: 20px 14px; }
+.ctl-search { display: flex; align-items: center; gap: 12px; height: 58px; padding: 0 16px; margin: 0 6px 14px; border-radius: 12px; background: var(--panel2); color: var(--muted); font-size: 19px; }
+.ctl-search input { border: 0; outline: 0; background: none; min-width: 0; flex: 1; font-size: 19px; color: var(--text); }
+.ctl-nav button { display: flex; align-items: center; gap: 18px; width: 100%; height: 64px; padding: 0 20px; border-radius: 12px; font-size: 21px; font-weight: 500; color: var(--text); text-align: left; }
+.ctl-nav button:hover { background: var(--hover); }
+.ctl-nav button.on { background: var(--panel2); }
+.ctl-nav button .ic { color: var(--sub); }
+.ctl-main { flex: 1; overflow: auto; padding: 22px 46px 60px; scroll-behavior: smooth; }
+.ctl-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.ctl-head h3 { margin: 0; font-size: 30px; font-weight: 600; }
+.ctl-head .icons { display: flex; gap: 16px; color: var(--sub); align-items: center; font-size: 18px; margin-right: 70px; }
+.sec-title { font-size: 19px; color: var(--sub); font-weight: 500; margin: 34px 0 14px; }
+.sec-title:first-child { margin-top: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.tile { height: 132px; border-radius: 16px; background: var(--panel2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 18px; font-weight: 500; color: var(--text); transition: .15s; }
+.tile .ic { width: 38px; height: 38px; color: var(--sub); }
+.tile:hover { background: var(--panel3); }
+.tile.on { background: var(--accent-soft); color: var(--accent); }
+.tile.on .ic { color: var(--accent); }
+.tile.alert.on { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
+.tile.alert.on .ic { color: var(--red); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 30px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.row .lbl { font-size: 21px; font-weight: 500; }
+.row .lbl span { display: block; font-size: 16px; color: var(--muted); font-weight: 400; margin-top: 5px; }
+.seg { display: flex; background: var(--seg-bg); border-radius: 12px; padding: 4px; flex: none; }
+.seg button { min-width: 108px; height: 54px; padding: 0 18px; border-radius: 9px; font-size: 18px; font-weight: 500; color: var(--sub); transition: .15s; white-space: nowrap; }
+.seg button.on { background: var(--seg-on); color: var(--text); box-shadow: var(--shadow-sm); }
+.seg.wide { width: 100%; }
+.seg.wide button { flex: 1; }
+.switch { width: 66px; height: 38px; border-radius: 19px; background: var(--panel3); position: relative; flex: none; transition: .2s; }
+.switch::after { content: ""; position: absolute; top: 4px; left: 4px; width: 30px; height: 30px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.2); transition: .2s; }
+.switch.on { background: var(--accent); }
+.switch.on::after { transform: translateX(28px); }
+.slider { -webkit-appearance: none; appearance: none; width: 100%; height: 10px; border-radius: 5px; background: linear-gradient(90deg, var(--accent) var(--p, 50%), var(--panel3) var(--p, 50%)); outline: 0; }
+.slider::-webkit-slider-thumb { -webkit-appearance: none; width: 34px; height: 34px; border-radius: 50%; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; }
+.swatches { display: flex; gap: 16px; flex-wrap: wrap; }
+.swatch { width: 70px; height: 70px; border-radius: 50%; border: 4px solid var(--panel); box-shadow: 0 0 0 2px var(--line); transition: .15s; }
+.swatch.on { box-shadow: 0 0 0 3px var(--accent); }
+.body-pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.body-pick button { height: 110px; border-radius: 14px; background: var(--panel2); font-size: 19px; font-weight: 500; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.body-pick button.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.body-pick svg { width: 110px; height: 34px; }
+.text-in { height: 54px; border-radius: 10px; border: 0; background: var(--panel2); padding: 0 16px; font-size: 19px; color: var(--text); outline: 0; width: 300px; }
+.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.kv div { background: var(--panel2); border-radius: 14px; padding: 20px 22px; font-size: 16px; color: var(--muted); }
+.kv b { display: block; font-size: 30px; color: var(--text); font-weight: 600; margin-top: 6px; }
+.charge-bar { position: relative; height: 70px; border-radius: 14px; background: var(--panel2); overflow: hidden; margin: 10px 0 18px; }
+.charge-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--green); transition: width .6s; }
+.charge-bar i.striped { background-image: repeating-linear-gradient(-45deg, rgba(255,255,255,.18) 0 14px, transparent 14px 28px); background-size: 40px 40px; animation: stripes 1s linear infinite; }
+@keyframes stripes { to { background-position: 40px 0; } }
+.charge-bar .limit-mark { position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: var(--text); opacity: .5; }
+.charge-bar b { position: absolute; left: 22px; top: 50%; transform: translateY(-50%); font-size: 30px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.version { font-size: 46px; font-weight: 600; letter-spacing: -.02em; margin: 6px 0; }
+.note { color: var(--muted); font-size: 17px; line-height: 1.6; }
+
+/* 空调面板 */
+.climate { flex: 1; display: grid; grid-template-columns: 260px 1fr 260px; padding: 0 30px 26px; gap: 20px; }
+.cl-side { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
+.cl-temp { display: flex; align-items: center; gap: 4px; }
+.cl-temp button { width: 60px; height: 80px; border-radius: 12px; display: grid; place-items: center; color: var(--sub); }
+.cl-temp button:hover { background: var(--hover); }
+.cl-temp b { font-size: 60px; font-weight: 500; min-width: 120px; text-align: center; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.cl-temp b.off { font-size: 30px; color: var(--muted); }
+.cl-viz { position: relative; border-radius: 20px; background: var(--panel2); overflow: hidden; cursor: crosshair; }
+.cl-viz svg { width: 100%; height: 100%; display: block; }
+.cl-viz .flow { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 10 22; animation: flow 1.2s linear infinite; opacity: .75; }
+.cl-viz.ac-off .flow { stroke: #ff8a3d; }
+.cl-viz.off .flow { opacity: 0; }
+@keyframes flow { to { stroke-dashoffset: -64; } }
+.cl-bottom { display: flex; align-items: center; gap: 12px; padding: 0 30px 28px; }
+.cl-btn { height: 82px; min-width: 88px; padding: 0 12px; border-radius: 14px; background: var(--panel2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 15px; font-weight: 500; color: var(--sub); transition: .15s; }
+.cl-btn .ic { color: var(--text); }
+.cl-btn:hover { background: var(--panel3); }
+.cl-btn.on { background: var(--accent-soft); color: var(--accent); }
+.cl-btn.on .ic { color: var(--accent); }
+.cl-btn.power.on { background: var(--accent); color: #fff; }
+.cl-btn.power.on .ic { color: #fff; }
+.cl-btn.heat.on { background: color-mix(in srgb, #ff6b1a 15%, transparent); color: #ff6b1a; }
+.cl-btn.heat.on .ic { color: #ff6b1a; }
+.fan-ctl { flex: 1; min-width: 240px; display: flex; align-items: center; gap: 16px; background: var(--panel2); border-radius: 14px; height: 82px; padding: 0 22px; color: var(--sub); }
+.fan-ctl b { font-size: 26px; color: var(--text); min-width: 34px; text-align: center; }
+.cl-modes { display: flex; gap: 10px; margin-left: auto; margin-right: 70px; }
+.cl-modes .cl-btn { height: 60px; flex-direction: row; gap: 8px; font-size: 17px; min-width: 0; }
+.cl-modes .cl-btn .ic { width: 24px; height: 24px; }
+
+/* 应用启动器 */
+.launcher { position: absolute; left: 50%; bottom: 118px; width: 980px; margin-left: -490px; border-radius: 22px; background: var(--panel); box-shadow: var(--shadow); padding: 26px 26px 14px; z-index: 15; transform: translateY(30px) scale(.97); opacity: 0; pointer-events: none; transition: .25s cubic-bezier(.2,.8,.2,1); }
+.launcher.open { transform: none; opacity: 1; pointer-events: auto; }
+.launcher-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.launcher-grid button { height: 128px; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 17px; color: var(--text); }
+.launcher-grid button:hover { background: var(--hover); }
+.launcher-grid .ic { width: 46px; height: 46px; }
+.launcher-tip { text-align: center; color: var(--muted); font-size: 15px; padding: 12px 0 0; }
+
+/* 应用页通用 */
+.app-wrap { flex: 1; overflow: auto; padding: 0 40px 40px; }
+.cam-grid { display: grid; grid-template-columns: 1fr; gap: 16px; height: 100%; }
+.cam-view { position: relative; border-radius: 16px; overflow: hidden; background: #111; height: 100%; min-height: 420px; }
+.cam-view canvas { width: 100%; height: 100%; display: block; }
+.cam-tabs { display: flex; gap: 10px; margin-bottom: 16px; }
+.list { border-radius: 16px; background: var(--panel2); overflow: hidden; }
+.li { display: flex; align-items: center; gap: 18px; padding: 18px 22px; border-bottom: 1px solid var(--line); font-size: 20px; }
+.li:last-child { border-bottom: 0; }
+.li .sub { font-size: 16px; color: var(--muted); margin-top: 3px; }
+.li .grow { flex: 1; min-width: 0; }
+.li .time { color: var(--sub); font-size: 17px; text-align: right; }
+.av { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; color: #fff; flex: none; font-size: 20px; }
+.ev-bar { width: 6px; align-self: stretch; border-radius: 3px; flex: none; }
+.two-col { display: grid; grid-template-columns: 1.3fr 1fr; gap: 26px; height: 100%; }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.keypad button { height: 84px; border-radius: 16px; background: var(--panel2); font-size: 32px; font-weight: 500; }
+.keypad button:hover { background: var(--panel3); }
+.dial-num { height: 70px; font-size: 36px; text-align: center; letter-spacing: .05em; font-variant-numeric: tabular-nums; }
+.chart { background: var(--panel2); border-radius: 16px; padding: 22px; }
+.chart svg { width: 100%; height: 360px; display: block; }
+.toy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.toy { height: 190px; border-radius: 18px; padding: 22px; text-align: left; display: flex; flex-direction: column; justify-content: space-between; color: #fff; font-size: 23px; font-weight: 600; background-size: cover; position: relative; overflow: hidden; }
+.toy small { display: block; font-size: 15px; opacity: .85; font-weight: 400; margin-top: 6px; }
+.toy .ic { width: 42px; height: 42px; }
+.sketch { width: 100%; height: 100%; border-radius: 16px; background: #fff; touch-action: none; cursor: crosshair; display: block; }
+.fireplace { height: 100%; border-radius: 18px; overflow: hidden; position: relative; background: radial-gradient(ellipse at 50% 100%, #ff9a2e 0%, #d9480f 25%, #5c1a05 55%, #110603 80%); }
+.fireplace i { position: absolute; bottom: -40px; width: 120px; height: 260px; border-radius: 50% 50% 40% 40%; background: radial-gradient(ellipse at 50% 80%, #fff3b0, #ffb347 40%, rgba(255,90,0,.0) 70%); filter: blur(6px); animation: flame 1.6s ease-in-out infinite alternate; mix-blend-mode: screen; }
+@keyframes flame { 0% { transform: scaleY(.8) translateX(0); opacity: .8; } 100% { transform: scaleY(1.15) translateX(10px); opacity: 1; } }
+.video-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.video-tiles button { height: 170px; border-radius: 16px; color: #fff; font-size: 22px; font-weight: 600; display: flex; align-items: flex-end; padding: 18px; }
+.browser-bar { display: flex; align-items: center; gap: 12px; height: 60px; border-radius: 12px; background: var(--panel2); padding: 0 18px; color: var(--muted); font-size: 19px; margin-bottom: 20px; }
+.browser-page { border-radius: 16px; background: var(--panel2); height: 520px; display: grid; place-items: center; text-align: center; color: var(--sub); }
+.manual h4 { font-size: 22px; margin: 24px 0 8px; }
+.manual p { color: var(--sub); font-size: 18px; line-height: 1.7; margin: 0; }
+
+/* 全屏媒体 */
+.media-full { flex: 1; display: grid; grid-template-columns: 300px 1fr 1fr; min-height: 0; }
+.media-src { border-right: 1px solid var(--line); padding: 10px 14px; }
+.media-src button { display: flex; align-items: center; gap: 16px; width: 100%; height: 64px; padding: 0 18px; border-radius: 12px; font-size: 20px; font-weight: 500; }
+.media-src button.on { background: var(--panel2); }
+.media-list { overflow: auto; padding: 0 20px; border-right: 1px solid var(--line); }
+.track { display: flex; align-items: center; gap: 16px; padding: 12px; border-radius: 12px; width: 100%; text-align: left; }
+.track:hover { background: var(--hover); }
+.track.on b { color: var(--accent); }
+.track .art { width: 62px; height: 62px; border-radius: 8px; }
+.track b { display: block; font-size: 19px; font-weight: 500; }
+.track span { font-size: 15px; color: var(--muted); }
+.track em { margin-left: auto; font-style: normal; color: var(--muted); font-size: 16px; }
+.now-big { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px 40px; gap: 20px; }
+.now-big .art { width: 300px; height: 300px; border-radius: 18px; box-shadow: var(--shadow); }
+.now-big h3 { margin: 0; font-size: 30px; text-align: center; }
+.now-big p { margin: -10px 0 0; color: var(--sub); font-size: 20px; }
+.scrub { width: 100%; display: flex; align-items: center; gap: 12px; font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.scrub .bar { flex: 1; height: 6px; border-radius: 3px; background: var(--panel3); overflow: hidden; }
+.scrub .bar i { display: block; height: 100%; background: var(--text); }
+.big-ctrls { display: flex; align-items: center; gap: 24px; }
+.big-ctrls button { width: 70px; height: 70px; border-radius: 50%; display: grid; place-items: center; color: var(--text); }
+.big-ctrls button.play { width: 86px; height: 86px; background: var(--text); color: var(--panel); }
+
+/* 专辑封面（纯 CSS 生成） */
+.art-gen { background: var(--a1); }
+.art-gen::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 30% 30%, var(--a2), transparent 55%), radial-gradient(circle at 75% 70%, var(--a3), transparent 50%), conic-gradient(from var(--rot), transparent, rgba(255,255,255,.18), transparent 40%); }
+.art-gen::after { content: ""; position: absolute; left: 18%; top: 18%; width: 64%; height: 64%; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); }
+
+/* ---------------- 通用提示 ---------------- */
+.toast { position: absolute; left: 50%; top: 26px; transform: translate(-50%, -20px); padding: 16px 28px; border-radius: 30px; background: rgba(20,21,23,.92); color: #fff; font-size: 20px; font-weight: 500; z-index: 60; opacity: 0; pointer-events: none; transition: .3s; white-space: nowrap; display: flex; align-items: center; gap: 12px; backdrop-filter: blur(10px); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.vol-hud { position: absolute; right: 40px; bottom: 130px; width: 360px; padding: 18px 22px; border-radius: 18px; background: var(--glass, rgba(30,30,30,.9)); color: var(--text, #fff); box-shadow: 0 10px 40px rgba(0,0,0,.25); z-index: 60; display: flex; align-items: center; gap: 16px; opacity: 0; transform: translateY(16px); transition: .25s; pointer-events: none; backdrop-filter: blur(16px); }
+.vol-hud.show { opacity: 1; transform: none; }
+.vol-hud .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--panel3, #444); overflow: hidden; }
+.vol-hud .bar i { display: block; height: 100%; background: var(--text, #fff); transition: width .15s; }
+.vol-hud b { font-size: 20px; min-width: 28px; text-align: right; }
+.scroll::-webkit-scrollbar, .ctl-main::-webkit-scrollbar, .ctl-nav::-webkit-scrollbar, .nav-drop::-webkit-scrollbar, .app-wrap::-webkit-scrollbar, .media-list::-webkit-scrollbar { width: 0; }
+
+/* ===================================================================
+   CarPlay 风格（新一代 CarPlay / Liquid Glass）
+   =================================================================== */
+#carplay { font-family: -apple-system, "SF Pro Display", "PingFang SC", var(--font); color: #fff; background: #000; }
+#carplay .ic { stroke-width: 2; }
+.cp-wall { position: absolute; inset: 0; transition: background .6s; }
+.cp-wall::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0,0,0,.45)); }
+.cp-card, .cp-side, .cp-climate {
+  background: linear-gradient(160deg, rgba(255,255,255,.16), rgba(255,255,255,.06));
+  backdrop-filter: blur(40px) saturate(1.6); -webkit-backdrop-filter: blur(40px) saturate(1.6);
+  border: 1px solid rgba(255,255,255,.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 20px 60px rgba(0,0,0,.35);
+}
+.cp-side { position: absolute; left: 22px; top: 22px; bottom: 22px; width: 132px; border-radius: 40px; display: flex; flex-direction: column; align-items: center; padding: 30px 0 22px; gap: 14px; z-index: 3; }
+.cp-time { font-size: 36px; font-weight: 600; letter-spacing: -.02em; }
+.cp-sig { display: flex; align-items: center; gap: 6px; font-size: 17px; font-weight: 600; opacity: .85; }
+.cp-gear { display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,.12); border-radius: 18px; padding: 8px 16px; margin-top: 6px; }
+.cp-gear b { font-size: 22px; color: #30d158; }
+.cp-gear span { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cp-recents { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; }
+.cp-recents button { border-radius: 22px; transition: transform .15s; }
+.cp-recents button:active, .cp-grid button:active { transform: scale(.92); }
+.cp-recents button.on { box-shadow: 0 0 0 4px rgba(255,255,255,.55); }
+.cp-home { width: 84px; height: 84px; border-radius: 50%; background: rgba(255,255,255,.14); display: grid; place-items: center; color: #fff; }
+.cp-icon { display: grid; place-items: center; border-radius: 26%; box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 6px 18px rgba(0,0,0,.35); }
+
+.cp-main { position: absolute; left: 176px; right: 22px; top: 22px; bottom: 182px; }
+.cp-climate { position: absolute; left: 176px; right: 22px; bottom: 22px; height: 140px; border-radius: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 26px; gap: 10px; z-index: 3; }
+.cp-temp { display: flex; align-items: center; gap: 4px; }
+.cp-temp button { width: 60px; height: 92px; border-radius: 22px; display: grid; place-items: center; color: rgba(255,255,255,.85); }
+.cp-temp button:hover, .cp-cbtn:hover { background: rgba(255,255,255,.1); }
+.cp-temp b { font-size: 50px; font-weight: 600; min-width: 140px; text-align: center; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.cp-cbtn { width: 96px; height: 92px; border-radius: 26px; display: grid; place-items: center; background: rgba(255,255,255,.08); color: #fff; position: relative; font-size: 22px; }
+.cp-cbtn b { font-weight: 700; font-size: 22px; letter-spacing: .02em; }
+.cp-cbtn.on { background: #0a84ff; }
+.cp-cbtn.off { color: #ff453a; }
+.cp-cbtn.heat { color: #ff9f0a; }
+.cp-lv { position: absolute; bottom: 12px; display: flex; gap: 4px; }
+.cp-lv i { width: 10px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.25); }
+.cp-lv i.on { background: #ff9f0a; }
+.cp-fan { display: flex; align-items: center; gap: 14px; padding: 0 20px; height: 92px; border-radius: 26px; background: rgba(255,255,255,.08); }
+.cp-fanbar { display: flex; gap: 6px; align-items: flex-end; height: 44px; }
+.cp-fanbar i { width: 14px; border-radius: 4px; background: rgba(255,255,255,.22); cursor: pointer; }
+.cp-fanbar i:nth-child(n) { height: calc(14px + var(--h, 0px)); }
+.cp-fanbar i.on { background: #fff; }
+.cp-fanbar i:nth-child(1){height:14px}.cp-fanbar i:nth-child(2){height:17px}.cp-fanbar i:nth-child(3){height:20px}.cp-fanbar i:nth-child(4){height:23px}.cp-fanbar i:nth-child(5){height:26px}.cp-fanbar i:nth-child(6){height:29px}.cp-fanbar i:nth-child(7){height:33px}.cp-fanbar i:nth-child(8){height:37px}.cp-fanbar i:nth-child(9){height:40px}.cp-fanbar i:nth-child(10){height:44px}
+
+/* 仪表盘 */
+.cp-dash { position: absolute; inset: 0; display: grid; grid-template-columns: 1.55fr 1fr; grid-template-rows: 1fr 1fr; gap: 22px; }
+.cp-card { border-radius: 40px; position: relative; overflow: hidden; }
+.cp-mapcard { grid-row: 1 / 3; }
+.cp-mapwrap { position: absolute; inset: 0; }
+.cp-map-slot { position: absolute; inset: 0; }
+.cp-map-slot #map { position: absolute; inset: 0; }
+#carplay #map canvas { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }
+.cp-over { position: absolute; left: 22px; top: 22px; right: 22px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; z-index: 2; }
+.cp-over > * { background: rgba(28,28,30,.72); backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8); border: 1px solid rgba(255,255,255,.14); border-radius: 30px; }
+.cp-search { display: flex; align-items: center; gap: 14px; height: 76px; padding: 0 30px; font-size: 24px; color: rgba(255,255,255,.75); }
+.cp-turn { display: flex; align-items: center; gap: 20px; padding: 20px 30px 20px 22px; background: rgba(10,132,255,.88) !important; }
+.cp-turn b { font-size: 44px; display: block; line-height: 1.05; }
+.cp-turn span { font-size: 21px; opacity: .92; }
+.cp-eta { display: flex; align-items: center; gap: 30px; padding: 16px 18px 16px 30px; font-size: 16px; color: rgba(255,255,255,.65); }
+.cp-eta b { display: block; font-size: 26px; color: #fff; }
+.cp-eta button, .cp-x { width: 54px; height: 54px; border-radius: 50%; background: rgba(255,255,255,.14); display: grid; place-items: center; }
+.cp-route { display: flex; align-items: center; gap: 20px; padding: 18px 18px 18px 30px; }
+.cp-route b { font-size: 26px; }
+.cp-route span { font-size: 19px; color: rgba(255,255,255,.7); }
+.cp-go { height: 58px; padding: 0 32px; border-radius: 29px; background: #30d158; font-size: 22px; font-weight: 600; margin-left: 10px; }
+.cp-chips { position: absolute; left: 22px; bottom: 22px; right: 22px; display: flex; gap: 12px; flex-wrap: wrap; z-index: 2; }
+.cp-chips button { display: flex; align-items: center; gap: 10px; height: 64px; padding: 0 24px; border-radius: 32px; font-size: 21px; background: rgba(28,28,30,.72); backdrop-filter: blur(30px); border: 1px solid rgba(255,255,255,.14); }
+
+.cp-np { position: absolute; inset: 0; display: flex; align-items: center; gap: 28px; padding: 30px; }
+.cp-art { width: 200px !important; height: 200px !important; border-radius: 26px !important; flex: none; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+.cp-np-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cp-np-info b { font-size: 32px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-np-info span { font-size: 22px; color: rgba(255,255,255,.65); }
+.cp-scrub { margin: 18px 0 8px; }
+.cp-scrub .bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,.2); overflow: hidden; }
+.cp-scrub .bar i { display: block; height: 100%; background: #fff; }
+.cp-times { display: flex; justify-content: space-between; font-size: 17px; color: rgba(255,255,255,.6); margin-top: 10px; font-variant-numeric: tabular-nums; }
+.cp-np-ctrls { display: flex; align-items: center; gap: 22px; }
+.cp-np-ctrls button { display: grid; place-items: center; width: 74px; height: 74px; border-radius: 50%; }
+.cp-np-ctrls button:hover { background: rgba(255,255,255,.1); }
+.cp-np-ctrls .faved { color: #ff375f; }
+.cp-np-ctrls .faved svg { fill: currentColor; }
+.cp-np.big { flex-direction: row; padding: 70px; gap: 70px; }
+.cp-np.big .cp-art { width: 560px !important; height: 560px !important; border-radius: 40px !important; }
+.cp-np.big .cp-np-info b { font-size: 52px; }
+.cp-np.big .cp-np-info span { font-size: 30px; }
+.cp-np.big .cp-np-ctrls { gap: 40px; margin-top: 20px; }
+.cp-np.big .cp-np-ctrls button { width: 100px; height: 100px; }
+
+.cp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.cp-cal, .cp-veh { padding: 28px 30px; display: flex; flex-direction: column; cursor: pointer; }
+.cp-cal small, .cp-veh small { font-size: 18px; color: #ff453a; font-weight: 600; }
+.cp-veh small { color: rgba(255,255,255,.65); }
+.cp-cal b, .cp-veh b { font-size: 56px; font-weight: 700; margin-top: 10px; letter-spacing: -.02em; }
+.cp-cal span, .cp-veh span { font-size: 22px; margin-top: 4px; }
+.cp-cal em { font-style: normal; margin-top: auto; display: flex; gap: 8px; align-items: center; font-size: 18px; color: rgba(255,255,255,.6); }
+.cp-vbtns { display: flex; gap: 12px; margin-top: auto; }
+.cp-vbtns button { width: 66px; height: 66px; border-radius: 50%; background: rgba(255,255,255,.14); display: grid; place-items: center; }
+.cp-vbtns button.on { background: #0a84ff; }
+
+/* App 网格 */
+.cp-grid { position: absolute; inset: 40px 40px 80px; display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: repeat(2, 1fr); align-items: center; justify-items: center; }
+.cp-grid button { display: flex; flex-direction: column; align-items: center; gap: 16px; font-size: 22px; font-weight: 500; transition: transform .15s; text-shadow: 0 1px 6px rgba(0,0,0,.5); }
+.cp-dots { position: absolute; bottom: 30px; left: 0; right: 0; display: flex; justify-content: center; gap: 12px; }
+.cp-dots i { width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,.35); }
+.cp-dots i.on { background: #fff; }
+
+/* 全屏 App */
+.cp-full { position: absolute; inset: 0; }
+.cp-title { font-size: 40px; font-weight: 700; margin-bottom: 18px; }
+.cp-list { padding: 36px 44px; overflow: auto; }
+.cp-li { display: flex; align-items: center; gap: 22px; width: 100%; padding: 18px 20px; border-radius: 26px; text-align: left; margin-bottom: 8px; background: rgba(255,255,255,.06); }
+.cp-li:hover { background: rgba(255,255,255,.12); }
+.cp-li div { flex: 1; }
+.cp-li b { display: block; font-size: 26px; font-weight: 600; }
+.cp-li span { font-size: 19px; color: rgba(255,255,255,.6); }
+.cp-av { width: 66px; height: 66px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; font-weight: 600; flex: none; color: #fff !important; }
+.cp-evbar { width: 8px; height: 60px; border-radius: 4px; flex: none; }
+.cp-sub { font-size: 20px; color: rgba(255,255,255,.55); font-weight: 600; margin: 26px 0 12px; }
+.cp-walls { display: flex; gap: 18px; }
+.cp-walls button { width: 220px; height: 130px; border-radius: 26px; display: flex; align-items: flex-end; padding: 16px; font-size: 19px; font-weight: 600; border: 3px solid transparent; }
+.cp-walls button.on { border-color: #fff; }
+.cp-bodybtn { background: rgba(255,255,255,.08) !important; height: 90px !important; align-items: center !important; justify-content: center; }
+.cp-bodybtn.on { background: #0a84ff !important; }
+.cp-vehicle { display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; }
+.cp-car3d { background: radial-gradient(ellipse at 50% 70%, rgba(255,255,255,.18), rgba(255,255,255,.04)); }
+.cp-car3d canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+.cp-vctl { padding: 36px 40px; overflow: auto; }
+.cp-vstat b { font-size: 70px; font-weight: 700; letter-spacing: -.03em; }
+.cp-vstat span { display: block; font-size: 22px; color: rgba(255,255,255,.65); }
+.cp-vtiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 26px; }
+.cp-vtile { height: 130px; border-radius: 28px; background: rgba(255,255,255,.08); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 19px; }
+.cp-vtile.on { background: #0a84ff; }
+.cp-paints { display: flex; gap: 14px; }
+.cp-paints button { width: 58px; height: 58px; border-radius: 50%; border: 3px solid rgba(255,255,255,.2); }
+.cp-paints button.on { border-color: #fff; }
+.cp-climate-big { padding: 36px 44px; }
+.cp-cl-temps { display: flex; justify-content: space-around; align-items: center; height: 70%; }
+.cp-cl-temps > div { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.cp-cl-temps small { font-size: 22px; color: rgba(255,255,255,.6); }
+.cp-cl-temps b { font-size: 110px; font-weight: 600; letter-spacing: -.04em; }
+.cp-cl-fan b { font-size: 70px !important; }
+.cp-note { text-align: center; color: rgba(255,255,255,.5); font-size: 20px; }
+.cp-weather { padding: 50px 60px; display: flex; flex-direction: column; background: linear-gradient(160deg, rgba(79,178,255,.45), rgba(28,111,224,.25)); }
+.cp-weather small { font-size: 26px; }
+.cp-weather > b { font-size: 180px; font-weight: 300; line-height: 1; margin: 10px 0; }
+.cp-weather > span { font-size: 28px; color: rgba(255,255,255,.8); }
+.cp-hours { display: flex; justify-content: space-between; margin-top: auto; background: rgba(255,255,255,.1); border-radius: 30px; padding: 26px 40px; }
+.cp-hours div { display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 20px; }
+.cp-hours b { font-size: 28px; }
+.cp-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
+.cp-empty b { font-size: 40px; }
+.cp-empty span { font-size: 22px; color: rgba(255,255,255,.6); }
+
+/* ---------------- 驾驶小游戏：红色边缘光晕 / 踏板 ---------------- */
+.edge-glow { position: absolute; top: 0; bottom: 0; width: 150px; pointer-events: none; opacity: 0; transition: opacity .25s; z-index: 55; }
+.edge-glow.left { left: 0; background: linear-gradient(90deg, rgba(255,30,30,.75), rgba(255,30,30,.25) 35%, transparent); }
+.edge-glow.right { right: 0; background: linear-gradient(270deg, rgba(255,30,30,.75), rgba(255,30,30,.25) 35%, transparent); }
+.edge-glow.front { left: 0; right: 0; top: 0; bottom: auto; width: auto; height: 220px; background: linear-gradient(180deg, rgba(255,30,30,.7), transparent); z-index: 2; }
+.edge-glow.on { opacity: 1; animation: glowPulse .9s ease-in-out infinite; }
+.edge-glow.flash { animation: glowFlash .25s ease-in-out 4; opacity: 1; }
+@keyframes glowPulse { 50% { opacity: .55; } }
+@keyframes glowFlash { 50% { opacity: .2; } }
+.signal { pointer-events: auto; cursor: pointer; }
+.pedals { position: absolute; left: 50px; right: 50px; bottom: 30px; display: flex; justify-content: space-between; z-index: 4; opacity: 0; pointer-events: none; transition: .4s; }
+.carpane.driving .pedals { opacity: 1; pointer-events: auto; }
+.pedals button { width: 130px; height: 74px; border-radius: 18px; background: var(--glass); box-shadow: var(--shadow-sm); font-size: 20px; font-weight: 600; color: var(--text); touch-action: none; backdrop-filter: blur(10px); }
+.pedals button:active { background: var(--accent); color: #fff; }
+.pedals button[data-pedal="down"]:active { background: var(--red); }
+
+.pedals .horn-btn { width: 96px; display: grid; place-items: center; }
+.pedals .horn-btn.on, .pedals .horn-btn:active { background: var(--amber); color: #fff; }
+
+.carpane.shake { animation: shake .45s cubic-bezier(.36,.07,.19,.97); }
+@keyframes shake { 10%, 90% { transform: translate(-3px, 1px); } 20%, 80% { transform: translate(6px, -2px); } 30%, 50%, 70% { transform: translate(-10px, 3px); } 40%, 60% { transform: translate(10px, -3px); } }
+
+/* ---------------- 新版布局：分隔条 ---------------- */
+.split-handle { position: absolute; top: 0; bottom: 100px; left: var(--split, 700px); width: 28px; margin-left: -14px; z-index: 8; cursor: col-resize; touch-action: none; display: grid; place-items: center; }
+.split-handle i { width: 7px; height: 120px; border-radius: 4px; background: color-mix(in srgb, var(--text) 30%, transparent); opacity: 0; transition: opacity .2s, background .2s; }
+.split-handle:hover i, .split-handle.drag i { opacity: 1; }
+.split-handle.drag i { background: color-mix(in srgb, var(--text) 60%, transparent); }
+
+/* ---------------- 新版布局：车辆区小组件卡片 ---------------- */
+.widgets { position: absolute; left: 30px; right: 30px; bottom: 26px; height: 262px; z-index: 4; overflow: hidden; transition: opacity .4s, transform .4s; touch-action: pan-y; }
+.carpane.driving .widgets { opacity: 0; transform: translateY(40px); pointer-events: none; }
+.w-track { display: flex; height: 236px; transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+.w-card { flex: 0 0 100%; height: 100%; border-radius: 22px; padding: 22px 26px; background: color-mix(in srgb, var(--panel2) 94%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
+#stage:not(.dark) .w-card { background: rgba(255, 255, 255, .95); box-shadow: var(--shadow-sm); }
+.w-dots { position: absolute; left: 0; right: 0; bottom: 4px; display: flex; justify-content: center; gap: 10px; }
+.w-dots button { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--text) 28%, transparent); transition: .2s; }
+.w-dots button.on { background: var(--text); }
+.w-media { display: flex; flex-direction: column; justify-content: space-between; }
+.w-head { display: flex; align-items: center; gap: 20px; cursor: pointer; min-width: 0; }
+.w-head .art { width: 88px; height: 88px; border-radius: 10px; flex: none; }
+.w-mi { min-width: 0; }
+.w-mi b { display: block; font-size: 24px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w-mi span { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 19px; color: var(--sub); }
+.w-prog { height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
+.w-prog i { display: block; height: 100%; background: var(--text); border-radius: 2px; transition: width 1s linear; }
+.w-ctrls { display: flex; justify-content: space-between; align-items: center; padding: 0 6px; }
+.w-ctrls button { width: 58px; height: 58px; border-radius: 14px; display: grid; place-items: center; color: var(--sub); transition: .15s; }
+.w-ctrls button.main { color: var(--text); }
+.w-ctrls button:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.w-ctrls button:active { transform: scale(.94); }
+.w-ctrls button.on { color: var(--red); }
+.w-trip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.w-trip h4, .w-tires h4 { margin: 0 0 10px; font-size: 20px; font-weight: 600; white-space: nowrap; }
+.w-trip p, .w-tires p { margin: 6px 0; font-size: 17px; color: var(--sub); white-space: nowrap; }
+.w-trip b { font-size: 21px; font-weight: 600; color: var(--text); margin-right: 2px; }
+.w-tires { display: flex; align-items: center; gap: 20px; }
+.w-tl { flex: 1; }
+.w-tires p b { color: var(--text); font-weight: 600; }
+.w-tcar { position: relative; width: 300px; height: 190px; display: grid; place-items: center; color: color-mix(in srgb, var(--text) 45%, transparent); }
+.w-tcar .ic { stroke-width: 1; }
+.tp { position: absolute; font-size: 19px; font-weight: 600; color: var(--text); }
+.tp small { font-size: 14px; color: var(--sub); margin-left: 3px; font-weight: 500; }
+.tp.fl, .tp.rl { left: 0; } .tp.fr, .tp.rr { right: 0; }
+.tp.fl, .tp.fr { top: 30px; } .tp.rl, .tp.rr { bottom: 30px; }
+/* 驻车时媒体在左侧卡片里，地图上的迷你播放器只在行驶时出现 */
+.carpane:not(.driving) ~ .mappane .mini-player { transform: translateY(160px); opacity: 0; pointer-events: none; }
+
+/* ---------------- 新版布局：导航卡片（搜索 + 家 / 公司） ---------------- */
+.nav-main { border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
+#stage.dark .nav-main { background: var(--glass); backdrop-filter: blur(14px); box-shadow: 0 0 0 1px #ffffff0d, var(--shadow); }
+.nav-main .nav-search { box-shadow: none; background: none; border-radius: 0; }
+.nav-quick { display: flex; align-items: center; height: 66px; border-top: 1px solid var(--line); }
+.nav-quick button { flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; font-size: 21px; font-weight: 600; color: var(--sub); transition: .15s; }
+.nav-quick button:hover { color: var(--text); background: color-mix(in srgb, var(--text) 4%, transparent); }
+.nav-quick i { width: 1px; height: 36px; background: var(--line); }
+
+/* ---------------- 车辆视图展开 / 收起 ---------------- */
+#tesla.split-anim .carpane { transition: width .55s cubic-bezier(.2,.8,.2,1); }
+#tesla.car-expanded .carpane { width: 100%; z-index: 9; }
+#tesla.car-expanded .split-handle { display: none; }
+#tesla.car-expanded .widgets { opacity: 0; transform: translateY(40px); pointer-events: none; }
+.car-expand { position: absolute; right: 14px; top: 50%; margin-top: -40px; width: 44px; height: 80px; border-radius: 22px; display: grid; place-items: center; color: var(--sub); background: color-mix(in srgb, var(--panel2) 70%, transparent); z-index: 6; transition: .2s; }
+.car-expand:hover { color: var(--text); }
+.carpane.driving .car-expand { opacity: 0; pointer-events: none; }
+
+/* ---------------- 对照参考站：车辆展厅背景 ---------------- */
+#stage.dark .carpane { background: radial-gradient(ellipse 70% 55% at 50% 52%, #1d1d1d 0%, #121212 55%, #0b0b0b 100%); }
+
+/* 顶部：PRND 紧凑排列，电量 “78% ▭” */
+#stage.dark .gears { gap: 4px; font-size: 26px; color: #4d4d4d; }
+#stage.dark .gears button { width: 20px; font-weight: 600; }
+#stage.dark .gears button.on { color: #f2f2f2; }
+.battery-chip { gap: 10px; color: var(--text); font-weight: 600; }
+#stage.dark .batt { border-color: #9a9a9a; } #stage.dark .batt::after { background: #9a9a9a; } #stage.dark .batt i { background: #d9d9d9; }
+
+/* 车身标签：左对齐「打开 / 前备箱」，左侧细竖线一直连到车身 */
+.car-label:not(.icon) { transform: translate(0, calc(-100% - 58px)); text-align: left; padding: 2px 0 2px 12px; border-radius: 0; border-left: 1px solid color-mix(in srgb, var(--text) 32%, transparent); }
+.car-label:not(.icon):hover { background: none; color: var(--text); }
+.car-label:not(.icon)::after { left: -1px; height: 58px; background: color-mix(in srgb, var(--text) 32%, transparent); }
+.car-label:not(.icon)::before { display: none; }
+.car-label.lockbtn { transform: translate(-50%, calc(-100% - 78px)); width: 52px; height: 52px; }
+.car-label.lockbtn::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 78px; background: color-mix(in srgb, var(--text) 32%, transparent); }
+.car-label[data-lbl="port"] { transform: translate(44px, -50%); width: 44px; height: 44px; }
+.car-label[data-lbl="port"]::before { content: ""; position: absolute; right: 100%; top: 50%; width: 40px; height: 1px; background: color-mix(in srgb, var(--text) 32%, transparent); }
+
+/* 地图顶部状态行：锁 · 时间 · 气温 · 用户，右侧安全气囊提示 */
+.statusbar { left: 0; right: 0; justify-content: flex-start; gap: 34px; padding: 0 30px; height: 66px; font-size: 21px; font-weight: 600; background: linear-gradient(rgba(0,0,0,.42), rgba(0,0,0,.08) 70%, transparent); }
+#stage:not(.dark) .statusbar { background: linear-gradient(rgba(255,255,255,.7), transparent); }
+.statusbar .airbag { margin-left: auto; gap: 8px; padding: 6px 10px; border-radius: 6px; background: #000; color: #f5a524; }
+.statusbar .airbag em { font-style: normal; font-size: 13px; line-height: 1.05; color: #fff; font-weight: 700; display: flex; flex-direction: column; }
+.statusbar .airbag b { color: #f5a524; }
+.nav-box { top: 76px; }
+.map-ctrls { top: 96px; }
+
+/* 媒体卡片：上半部分封面 + 歌名，下半部分一排控制键 */
+.widgets { height: 214px; }
+.w-track { height: 188px; }
+.w-card { border-radius: 10px; padding: 16px 22px; }
+.w-media { padding: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; }
+.w-media .w-head { height: 96px; gap: 22px; padding-right: 16px; cursor: default; }
+.w-media .w-head .art { width: 96px; height: 96px; border-radius: 0; }
+.w-media .w-mi { flex: 1; cursor: pointer; }
+.w-media .w-mi b { text-transform: uppercase; font-size: 22px; letter-spacing: .02em; }
+.w-media .w-mi span { font-size: 18px; font-weight: 600; }
+.w-small { width: 56px; height: 56px; border-radius: 10px; display: grid; place-items: center; color: var(--sub); }
+.w-small.on { color: var(--text); background: color-mix(in srgb, var(--text) 8%, transparent); }
+.w-media .w-prog { border-radius: 0; }
+.w-media .w-ctrls { flex: 1; padding: 0 10px; background: color-mix(in srgb, #000 12%, transparent); }
+.w-media .w-ctrls button { width: 64px; height: 64px; color: var(--sub); }
+.w-media .w-ctrls button.main { color: var(--text); }
+.w-trip h4, .w-tires h4 { font-size: 19px; margin-bottom: 6px; }
+.w-trip p, .w-tires p { margin: 3px 0; font-size: 16px; }
+.w-trip b { font-size: 19px; }
+.w-tcar { height: 156px; }
+.w-tcar .ic { width: 120px; height: 120px; }
+.tp.fl, .tp.fr { top: 18px; } .tp.rl, .tp.rr { bottom: 18px; }
+
+/* 展开视图：媒体卡片和导航卡片并排居中 */
+.exp-nav { display: none; }
+#tesla.car-expanded .widgets { opacity: 1; transform: none; pointer-events: auto; left: calc(50% - 540px); right: auto; width: 640px; }
+#tesla.car-expanded .exp-nav { display: block; position: absolute; left: calc(50% + 116px); width: 424px; bottom: 52px; height: 188px; border-radius: 10px; overflow: hidden; background: color-mix(in srgb, var(--panel2) 94%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 6%, transparent); z-index: 4; }
+#stage:not(.dark) #tesla.car-expanded .exp-nav { background: rgba(255, 255, 255, .95); }
+.en-search { width: 100%; height: 96px; display: flex; align-items: center; gap: 16px; padding: 0 26px; font-size: 22px; font-weight: 600; color: var(--sub); }
+.exp-nav .nav-quick { height: 92px; }
+
+/* 底栏：纯黑、温度大号细字、彩色应用图标 */
+#stage.dark .dock { background: #000; border-top: 0; }
+.temp .val { font-size: 46px; font-weight: 300; min-width: 110px; }
+.temp .arrow { color: #8a8a8a; }
+.app-ic .tile { width: 52px; height: 52px; border-radius: 12px; display: grid; place-items: center; color: #fff; background: #3a3a3c; }
+.app-ic .tile .ic { width: 30px; height: 30px; }
+.t-phone .tile { background: none; color: #30d158; }
+.t-phone .tile .ic { width: 40px; height: 40px; fill: #30d158; }
+.t-camera .tile { background: linear-gradient(#4a4a4e, #2c2c2e); }
+.t-media .tile { background: linear-gradient(135deg, #ff5f7e, #ff2d55); }
+.t-calendar .tile { background: #fff; color: #111; }
+.t-energy .tile { background: linear-gradient(135deg, #34d36b, #13a24a); }
+.t-toybox .tile { background: linear-gradient(135deg, #ffb340, #ff5e3a); }
+.t-theater .tile { background: linear-gradient(135deg, #ff453a, #b3001b); }
+.t-game .tile { background: linear-gradient(135deg, #bf5af2, #6e2bd9); }
+.t-browser .tile { background: linear-gradient(135deg, #64d2ff, #0a84ff); }
+.t-dashcam .tile { background: linear-gradient(#3a3a3c, #1c1c1e); }
+.t-charge .tile { background: linear-gradient(135deg, #30d158, #0a8f3a); }
+.t-messages .tile { background: linear-gradient(135deg, #5ef27a, #18b83c); }
+.t-manual .tile { background: linear-gradient(135deg, #8e8e93, #5a5a5f); }
+.t-more .tile { background: #2c2c2e; }
+.cal { display: flex; flex-direction: column; align-items: center; width: 100%; height: 100%; border-radius: 12px; overflow: hidden; font-size: 25px; font-weight: 600; line-height: 1; }
+.cal i { display: block; width: 100%; height: 12px; background: #ff3b30; margin-bottom: 6px; }
+.app-ic.on { background: none !important; }
+.app-ic.on::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 40px; height: 4px; margin-left: -20px; border-radius: 2px; background: #bbb; }
+.app-ic:hover { background: none; }
+.app-ic:hover .tile { filter: brightness(1.12); }
+
+/* 设置面板：灰色底，参照新版 */
+#stage.dark .sheet { background: #2b2b2b; }
+#stage.dark .ctl-nav { border-right-color: #3a3a3a; }
+#stage.dark .ctl-nav button.on { background: rgba(255,255,255,.1); }
+#stage.dark .ctl-search { background: none; padding-left: 10px; }
+/* 地图车标：红色导航箭头 */
+.car-marker svg { fill: #e82127; stroke: #fff; stroke-width: 1.2; }
+.car-marker .halo { background: rgba(232, 33, 39, .16); }
+.dock .app-ic .tile .ic { color: inherit; stroke-width: 2; }
+.dock .t-phone .tile .ic { color: #30d158; stroke-width: 1.4; }
+
+/* 宽度变化平滑过渡（拖动分隔条时关闭过渡，保证跟手） */
+#tesla .carpane { transition: width .45s cubic-bezier(.2,.8,.2,1); }
+#tesla .mappane, #tesla .split-handle { transition: left .45s cubic-bezier(.2,.8,.2,1); }
+#tesla.dragging .carpane, #tesla.dragging .mappane, #tesla.dragging .split-handle { transition: none; }
+#tesla.sheet-open { --split: 700px !important; }
+/* 地图车标放大（参照新版车机） */
+.car-marker { width: 80px; height: 80px; }
+.car-marker svg { width: 52px; height: 52px; filter: drop-shadow(0 3px 6px rgba(0,0,0,.45)); }
+.car-marker .halo { width: 80px; height: 80px; }
+
+/* ---------- 模拟地图（js/simmap.js） ---------- */
+#map.sim-map { overflow: hidden; background: #161616; touch-action: none; cursor: grab; }
+#map.sim-map .sim-layer { position: absolute; left: -30%; top: -80%; width: 160%; height: 180%; transform-origin: 50% 71%; transition: transform .8s cubic-bezier(.2,.8,.2,1); }
+#map.sim-map .sim-layer.tilt { transform: perspective(1400px) rotateX(48deg); }
+#map.sim-map canvas { width: 100%; height: 100%; display: block; filter: none !important; }
+#carplay #map.sim-map canvas { filter: none !important; }
+
+/* ---------- 网易云外链播放器 ---------- */
+.ne-logo { width: 26px; height: 26px; border-radius: 50%; background: #e60026; flex: none; position: relative; }
+.ne-logo::after { content: ""; position: absolute; inset: 7px; border: 2.5px solid #fff; border-radius: 50%; border-right-color: transparent; transform: rotate(-30deg); }
+.ne-pane { grid-column: 2 / 4; display: flex; flex-direction: column; gap: 18px; padding: 6px 40px 30px; min-height: 0; }
+.ne-bar { display: flex; gap: 12px; }
+.ne-input { flex: 1; height: 58px; border-radius: 14px; border: 0; padding: 0 20px; font: inherit; font-size: 19px; background: var(--panel2); color: var(--text); outline: none; }
+.ne-input:focus { box-shadow: 0 0 0 2px #e60026 inset; }
+.ne-presets { display: flex; gap: 10px; }
+.ne-presets .chip.on { background: #e60026; color: #fff; }
+.ne-slot { height: 430px; border-radius: 16px; background: var(--panel2); flex: none; }
+.ne-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--muted); text-align: center; }
+.ne-empty b { font-size: 24px; color: var(--text); }
+.ne-empty span { font-size: 17px; line-height: 1.7; max-width: 560px; }
+.ne-host { position: absolute; z-index: 13; border-radius: 16px; overflow: hidden; background: #fff; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .2s; }
+.ne-host.show { opacity: 1; visibility: visible; pointer-events: auto; }
+.ne-host iframe { width: 100%; display: block; }
+.pedals .pull-btn { width: 110px; }
+.pedals .pull-btn.on { background: var(--amber); color: #fff; }
+
+/* 红绿灯读秒 / 低电量提醒 */
+.tlight { display: none; align-items: center; gap: 10px; height: 56px; padding: 0 18px 0 14px; margin-left: 14px; border-radius: 28px; background: var(--panel2); font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tlight.show { display: flex; }
+.tlight i { width: 24px; height: 24px; border-radius: 50%; box-shadow: 0 0 12px currentColor; }
+.tlight i.red { background: #ff3b30; color: #ff3b30; }
+.tlight i.yellow { background: #ffc400; color: #ffc400; }
+.tlight i.green { background: #2fd27a; color: #2fd27a; }
+.lowbat-card h4 { display: flex; align-items: center; gap: 8px; color: var(--red); }
+.lowbat-card p { line-height: 1.6; }
+
+/* 充电中：电池条变绿并呼吸，百分比和闪电也变绿（深色主题的覆盖规则要写得更具体） */
+.batt.charging i, #stage.dark .batt.charging i { background: var(--green); animation: battPulse 1.6s ease-in-out infinite; }
+#stage.dark .batt.low:not(.charging) i { background: var(--red); }
+#batteryChip.charging, #batteryChip.charging .ic { color: var(--green); }
+#stage.dark #batteryChip.charging .batt { border-color: var(--green); } #stage.dark #batteryChip.charging .batt::after { background: var(--green); }
+@keyframes battPulse { 50% { opacity: .55; } }
+
+/* 车衣自定义取色 */
+.swatch.custom { position: relative; overflow: hidden; cursor: pointer; display: grid; place-items: center; }
+.swatch.custom::after { content: "+"; font-size: 30px; font-weight: 300; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.swatch.custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+/* ---- 车库光影：驻车时车辆像停在顶灯照着的车位里 ---- */
+.garage { position: absolute; inset: 0; pointer-events: none; transition: opacity .6s;
+  background:
+    radial-gradient(ellipse 36% 8% at 50% 76%, rgba(255,255,255,.09), transparent 70%),
+    radial-gradient(ellipse 24% 10% at 12% 84%, rgba(255,255,255,.13), transparent 70%),
+    linear-gradient(112deg, transparent 6%, rgba(255,255,255,.045) 17%, transparent 32%),
+    radial-gradient(ellipse 50% 32% at 50% 0%, rgba(255,255,255,.07), transparent 70%),
+    linear-gradient(180deg, transparent 52%, rgba(255,255,255,.025) 64%, transparent 100%),
+    radial-gradient(ellipse 85% 75% at 50% 55%, transparent 50%, rgba(0,0,0,.5)); }
+.carpane.driving .garage { opacity: 0; }
+#stage:not(.dark) .garage { opacity: .35; }
+
+/* ---- 展开车辆视图时右上角的地图缩影 ---- */
+.mini-map { display: none; position: absolute; right: 0; top: 0; width: 640px; height: 460px; z-index: 2; cursor: pointer; opacity: .55;
+  -webkit-mask-image: radial-gradient(ellipse 60% 62% at 64% 38%, #000 30%, transparent 75%); mask-image: radial-gradient(ellipse 60% 62% at 64% 38%, #000 30%, transparent 75%); transition: opacity .3s; }
+.mini-map::after { content: ""; position: absolute; inset: 0; } /* 挡住地图自身的拖动，整块当按钮用 */
+.mini-map:hover { opacity: .75; }
+.mini-map > * { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }
+#tesla.car-expanded .mini-map { display: block; }
+
+/* ---- Dock 图标：消息为蓝色气泡、相机为圆形镜头（参照新版车机） ---- */
+.t-messages .tile { background: none; }
+.dock .t-messages .tile .ic { width: 40px; height: 40px; color: #2f8cff; fill: #2f8cff; stroke-width: 1.6; }
+.t-camera .tile { background: none; }
+.lens { width: 46px; height: 46px; border-radius: 50%; display: block; background: radial-gradient(circle, #05050a 0 22%, #6f5bd6 24% 30%, #1b1830 33% 52%, #3a3a40 55% 60%, #141416 63%); box-shadow: inset 0 1px 0 rgba(255,255,255,.18); }
+
+/* —— 网易云登录态 */
+.ne-main { gap: 14px; }
+.ne-pane.inner { grid-column: auto; padding: 0; flex: 1; }
+.ne-tabs { display: flex; gap: 10px; }
+.ne-tabs .chip.on { background: #e60026; color: #fff; }
+.ne-mine { flex: 1; display: flex; flex-direction: column; gap: 14px; min-height: 0; position: relative; }
+.ne-user { display: flex; align-items: center; gap: 14px; }
+.ne-user img { width: 44px; height: 44px; border-radius: 50%; }
+.ne-user b { font-size: 21px; flex: 1; }
+.ne-user .btn, .ne-viewbar .btn { height: 48px; font-size: 17px; padding: 0 18px; }
+.ne-lists { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 16px; overflow: auto; align-content: start; flex: 1; padding-bottom: 8px; }
+.ne-list { text-align: left; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ne-list .cv { aspect-ratio: 1; border-radius: 14px; background: var(--panel2) center/cover; display: grid; place-items: center; }
+.ne-list.daily .cv { background: linear-gradient(135deg, #e60026, #ff8a5c); color: #fff; }
+.ne-list b { font-size: 17px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
+.ne-list span { font-size: 14px; color: var(--muted); }
+.ne-viewbar { display: flex; align-items: center; gap: 14px; }
+.ne-viewbar b { font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+.ne-viewbar .note { flex: 1; font-size: 15px; }
+.ne-songs { flex: 1; overflow: auto; min-height: 0; display: flex; flex-direction: column; }
+.ne-song { display: flex; align-items: center; gap: 16px; padding: 10px 14px; border-radius: 12px; text-align: left; flex: none; }
+.ne-song.on { background: var(--panel2); }
+.ne-song.on b { color: #e60026; }
+.ne-song em { width: 34px; font-style: normal; color: var(--muted); font-size: 16px; text-align: right; }
+.ne-song div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ne-song div b { font-size: 19px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ne-song div span { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ne-song small { color: var(--muted); font-size: 15px; }
+.ne-song .vip { font-style: normal; font-size: 12px; font-weight: 700; color: #b8860b; border: 1px solid #b8860b; border-radius: 4px; padding: 0 5px; }
+.ne-np { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-radius: 16px; background: var(--panel2); flex: none; }
+.ne-np.hidden { display: none; }
+.ne-np .art { width: 56px; height: 56px; border-radius: 10px; flex: none; }
+.ne-np-i { display: flex; flex-direction: column; min-width: 0; width: 240px; }
+.ne-np-i b { font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ne-np-i span { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ne-np-c { display: flex; gap: 6px; align-items: center; }
+.ne-np-c button { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; }
+.ne-np-bar { flex: 1; display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--muted); }
+.ne-np-bar .bar { flex: 1; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.ne-np-bar .bar i { display: block; height: 100%; width: 0; background: #e60026; }
+.ne-login { display: flex; align-items: center; justify-content: center; gap: 30px; flex: 1; }
+.ne-login img { width: 240px; height: 240px; border-radius: 16px; background: #fff; padding: 10px; }
+.ne-login div { display: flex; flex-direction: column; gap: 12px; max-width: 360px; }
+.ne-login b { font-size: 24px; }
+.ne-login span { font-size: 17px; line-height: 1.7; color: var(--muted); }
+
+/* 修正：空状态里的按钮不要被 flex 拉伸 */
+.ne-empty .btn, .ne-login .btn { flex: none; align-self: center; width: auto; height: 60px; min-width: 200px; padding: 0 36px; margin-top: 10px; }
+.ne-login .btn { align-self: flex-start; }
+.ne-empty .btn.primary, .ne-login .btn.primary { background: #e60026; color: #fff; }
+.ne-viewbar .btn.primary, .ne-user .btn { flex: none; }
+.ne-viewbar .btn.primary { background: #e60026; color: #fff; }
+.ne-mine .ne-bar .chip { flex: none; }
+.ne-mine .ne-bar .chip.on { background: #e60026; color: #fff; }
+.ne-mine .ne-bar .btn { flex: none; height: 58px; background: #e60026; color: #fff; }
+
+
+/* ===================================================================
+   手机访问（局域网打开，如 iPhone 热点）：
+   舞台仍是固定的 1920×1200 画布，由 js/app.js 的 fit() 按屏幕等比缩放（横屏留黑边，不滚动、不缩放）。
+   下面的规则只在 <html class="phone">（触屏且短边 < 600px）下生效，桌面端外观不变。
+   =================================================================== */
+html, body { overscroll-behavior: none; }
+html.phone, html.phone body { position: fixed; inset: 0; width: 100%; touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; -webkit-touch-callout: none; }
+html.phone #page { position: fixed; inset: 0; height: auto; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+html.phone .devbar, html.phone .keys-pop { display: none; }
+html.phone #stage { border-radius: 0; box-shadow: none; }
+html.phone .pedals button, html.phone .hazard-btn, html.phone .ap-btn, html.phone .car-label { touch-action: none; }
+#rotateHint { display: none; position: fixed; inset: 0; z-index: 9999; align-items: center; justify-content: center; text-align: center; padding: 24px; background: rgba(12, 13, 15, .96); color: #e8e8e8; font-family: var(--font); }
+html.phone.portrait:not(.allow-portrait) #rotateHint { display: flex; }
+#rotateHint .rh-card { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 320px; }
+#rotateHint b { font-size: 22px; }
+#rotateHint span { font-size: 14px; line-height: 1.6; color: #9aa0a6; }
+#rotateHint button { margin-top: 10px; padding: 10px 18px; border-radius: 12px; background: #1c1e21; color: #c8ccd0; font-size: 13px; }
+#rotateHint .rh-phone { transform-origin: 42px 37px; animation: rhTurn 2.4s ease-in-out infinite; }
+@keyframes rhTurn { 0%, 15% { transform: rotate(0); } 55%, 85% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
+
+/* 展开视图导航卡片：分割线要清楚可见（与音乐进度条同高） */
+.exp-nav .nav-quick { border-top: 2px solid color-mix(in srgb, var(--text) 22%, transparent); height: 92px; }
+.exp-nav .nav-quick i { width: 1px; background: color-mix(in srgb, var(--text) 22%, transparent); }
+
+/* 音乐卡片控制键一排：底色与上半部分一致（浅色模式不再发深） */
+.w-media .w-ctrls { background: transparent; }

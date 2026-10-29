@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DriveOS">
+<meta name="theme-color" content="#0c0d0f">
+<meta name="format-detection" content="telephone=no">
+<title>DriveOS 车机模拟器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="css/style.css">
+<!-- 多语言：i18n.js 是核心，js/i18n/<code>.js 是各语言包（新增语言：加一个文件 + 这里一行）。中文是默认语言 -->
+<script src="js/i18n.js"></script>
+<script src="js/i18n/en.js"></script>
+<script src="js/i18n/ja.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+  // three.js 只提供 ES module，这里把它挂到 window 上，让其余普通脚本（可直接双击打开）使用
+  import * as THREE from 'three';
+  import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+  import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'; // Cybertruck（及可选的 Model Y）的 GLB 使用 Meshopt 压缩
+  import { Reflector } from 'three/addons/objects/Reflector.js';
+  window.THREE = THREE;
+  window.RoomEnvironment = RoomEnvironment;
+  window.GLTFLoader = GLTFLoader;
+  window.DRACOLoader = DRACOLoader;
+  window.MeshoptDecoder = MeshoptDecoder;
+  window.Reflector = Reflector;
+  window.dispatchEvent(new Event('three-ready'));
+</script>
+</head>
+<body>
+<!-- 手机竖屏时的提示（只在 html.phone.portrait 下显示，见 css/style.css 末尾） -->
+<div id="rotateHint" aria-live="polite">
+  <div class="rh-card">
+    <svg width="84" height="84" viewBox="0 0 84 84" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g class="rh-phone"><rect x="27" y="10" width="30" height="54" rx="6"/><path d="M38 57h8"/></g><path d="M14 66a30 30 0 0 0 12 11M70 66a30 30 0 0 1-12 11" opacity=".55"/><path d="M26 77l-5-1 1-5M58 77l5-1-1-5" opacity=".55"/></svg>
+    <b>请把手机横过来</b>
+    <span>DriveOS 是横屏车机界面，横屏后会自动缩放到整个屏幕</span>
+    <button id="rotateSkip" type="button">仍然竖屏使用</button>
+  </div>
+</div>
+<div id="page">
+  <header class="devbar">
+    <div class="brand"><b>DriveOS</b><span>车机界面模拟器</span></div>
+    <div class="devbar-controls">
+      <div class="dev-seg" id="devSkin">
+        <button data-skin="tesla">Tesla 风格</button>
+        <button data-skin="carplay">CarPlay 风格</button>
+      </div>
+      <div class="dev-seg" id="devTheme">
+        <button data-theme="light">浅色</button>
+        <button data-theme="dark">深色</button>
+        <button data-theme="auto">自动</button>
+      </div>
+      <div class="dev-seg" id="devLang" title="Language / 语言" translate="no"></div>
+      <select id="devBody" title="车身类型"></select>
+      <button class="dev-btn" id="devSound" title="音效开关"></button>
+      <button class="dev-btn" id="devKeys" title="快捷键">⌨︎ 快捷键</button>
+    </div>
+  </header>
+
+  <div class="bezel" id="bezel">
+    <div id="stage">
+
+      <!-- ============ Tesla 风格 ============ -->
+      <div id="tesla" class="skin">
+        <section class="carpane" id="carpane">
+          <div class="garage"></div>
+          <div id="car3d"></div>
+          <div class="mini-map" id="miniMap" title="展开地图"></div>
+          <div class="car-labels" id="carLabels"></div>
+
+          <div class="car-top">
+            <div class="gears" id="gears"></div>
+            <div class="car-indicators" id="indicators"></div>
+            <div class="battery-chip" id="batteryChip"></div>
+          </div>
+
+          <div class="drive-hud" id="driveHud">
+            <div class="signal left" id="sigL"></div>
+            <div class="speed"><b id="speed">0</b><span>km/h</span></div>
+            <div class="signal right" id="sigR"></div>
+            <div class="limit"><span id="limit">60</span></div>
+            <div class="tlight" id="tlight"></div>
+            <button class="hazard-btn" data-hazard title="双闪 (Z)"><svg class="ic" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3.5 2.5 20h19z"/><path d="M12 9 7.3 17.2h9.4z"/></svg></button>
+            <button class="ap-btn" id="apBtn" title="自动辅助驾驶 (A)"></button>
+          </div>
+
+          <div class="car-meta" id="carMeta"></div>
+          <div class="widgets" id="widgets"></div>
+          <button class="car-expand" id="carExpand"></button>
+          <div class="exp-nav" id="expNav"></div>
+          <div class="gear-strip" id="gearStrip"><div class="gear-pop" id="gearPop"></div></div>
+          <div class="ap-banner" id="apBanner"></div>
+          <div class="edge-glow front" id="glow-front"></div>
+          <div class="pedals">
+            <button data-pedal="down" title="刹车（按住 ↓）">刹车</button>
+            <button data-horn title="鸣笛（按住 H）" class="horn-btn"><svg class="ic" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10h3l7.5-4.5v13L6.5 14h-3z"/><path d="M17.5 8.5l3-1.5M17.5 12h3.5M17.5 15.5l3 1.5"/></svg></button>
+            <button data-pull title="靠边停车（O）" class="pull-btn">靠边</button>
+            <button data-pedal="up" title="电门（按住 ↑）">加速</button>
+          </div>
+        </section>
+
+        <div class="split-handle" id="splitHandle" title="拖动调整左右宽度"><i></i></div>
+
+        <section class="mappane" id="mappane">
+          <div class="map-host" id="teslaMapHost"><div id="map"></div></div>
+          <div class="map-fade"></div>
+
+          <div class="statusbar" id="statusbar"></div>
+
+          <div class="nav-box" id="navBox"></div>
+          <div class="map-ctrls" id="mapCtrls"></div>
+          <div class="zoom-ctrls" id="zoomCtrls"></div>
+
+          <div class="mini-player" id="miniPlayer"></div>
+          <div class="call-banner" id="callBanner"></div>
+
+          <div class="cam-overlay" id="revCam"></div>
+          <div class="sheet" id="sheet"></div>
+        </section>
+
+        <!-- 全部应用：放在整屏层级，车辆视图展开时也居中显示在底栏上方 -->
+        <div class="launcher" id="launcher"></div>
+        <footer class="dock" id="dock"></footer>
+      </div>
+
+      <!-- ============ CarPlay 风格 ============ -->
+      <div id="carplay" class="skin"></div>
+
+      <div class="edge-glow left" id="glow-left"></div>
+      <div class="edge-glow right" id="glow-right"></div>
+      <div class="toast" id="toast"></div>
+      <div class="vol-hud" id="volHud"></div>
+    </div>
+  </div>
+
+  <div class="keys-pop" id="keysPop">
+    <h4>快捷键</h4>
+    <div><kbd>P</kbd><kbd>R</kbd><kbd>N</kbd><kbd>D</kbd> 换挡（或在车辆画面左边缘上下滑动）</div>
+    <div><kbd>A</kbd> 启用 / 退出自动辅助驾驶</div>
+    <div>按住 <kbd>↑</kbd> 加速 · 按住 <kbd>↓</kbd> 减速 · <kbd>空格</kbd> 急刹</div>
+    <div><kbd>←</kbd><kbd>→</kbd> 打灯变道（盲区有车时屏幕边缘亮红光）</div>
+    <div>按住 <kbd>H</kbd> 鸣笛（前车会让行） · <kbd>Z</kbd> 双闪 · <kbd>O</kbd> 靠边停车（应急车道）</div>
+    <div>车辆视图展开后：拖动或 <kbd>←</kbd><kbd>→</kbd> 旋转，双击 / <kbd>Home</kbd> 复位，<kbd>Esc</kbd> 收起</div>
+    <div><kbd>L</kbd> 锁车 / 解锁 · <kbd>M</kbd> 播放 / 暂停</div>
+    <div><kbd>-</kbd><kbd>=</kbd> 音量</div>
+  </div>
+</div>
+
+<script src="js/icons.js"></script>
+<script src="js/sound.js"></script>
+<script src="js/car3d.js"></script>
+<script src="js/map.js"></script>
+<script src="js/simmap.js"></script>
+<script src="js/rearcam.js"></script>
+<script src="js/app.js"></script>
+<script src="js/carplay.js"></script>
+</body>
+</html>
