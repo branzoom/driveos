@@ -914,10 +914,13 @@
       if (laneReq) {
         laneReq.t += dt;
         const side = laneReq.dir < 0 ? 'left' : 'right';
-        if (blind[side]) {
+        if (blind[side] && laneReq.auto) {
+          // 自动变道：盲区突然有车就静默取消，由外层稍后重新评估（不刷屏报警）
+          emit('lane', { status: 'cancel', dir: laneReq.dir, auto: true, blocked: true }); laneReq = null;
+        } else if (blind[side]) {
           if (!laneReq.warned) { laneReq.warned = true; emit('lane', { status: 'blocked', dir: laneReq.dir }); }
           if (laneReq.t > 6) { emit('lane', { status: 'cancel', dir: laneReq.dir }); laneReq = null; }
-        } else if (laneReq.t > 1.5) {
+        } else if (laneReq.t > laneReq.wait) {
           laneFrom = egoLane; egoLane += laneReq.dir; laneMoving = true;
           emit('lane', { status: 'start', dir: laneReq.dir }); laneReq = null;
         }
@@ -1197,14 +1200,15 @@
         if (!on) { az = home.az; el = home.el; zoomK = home.zoom; egoLane = PARK_LANE; egoZ = PARK_LANE * LANE; laneReq = null; laneMoving = false; }
       },
       // 打灯变道：dir = -1 左 / 1 右；旁边车道的车有一定概率突然加速“抢道”
-      requestLane(dir) {
+      // opt.auto：Autopilot 自动变道（不触发旁车“抢道”）；opt.urgent：避让障碍，缩短打灯等待
+      requestLane(dir, opt) {
         const t = egoLane + dir;
         // 最右侧车道外是应急车道（路肩），车速 60 km/h 以下才能驶入
         if (t < -1 || t > 2) { emit('lane', { status: 'edge', dir }); return; }
         if (t === 2 && speed > 60) { emit('lane', { status: 'fast', dir }); return; }
         if (laneReq || laneMoving) return;
-        laneReq = { dir, t: 0, warned: false };
-        if (t <= 1 && speed > 15 && Math.random() < 0.65) {
+        laneReq = { dir, t: 0, warned: false, auto: !!(opt && opt.auto), wait: opt && opt.urgent ? 0.6 : 1.5 };
+        if (!laneReq.auto && t <= 1 && speed > 15 && Math.random() < 0.65) {
           let pick = null;
           for (const c of traffic) {
             const u = c.userData, x = c.position.x;
@@ -1239,8 +1243,21 @@
           if (c.userData.lane !== egoLane || c.position.x <= 0) continue;
           if (!best || c.position.x < best.position.x) best = c;
         }
-        return best ? { gap: best.position.x - 2.45 - best.userData.half, v: best.userData.v } : null;
+        return best ? { gap: best.position.x - 2.45 - best.userData.half, v: best.userData.v, kind: best.userData.kind } : null;
       },
+      // 指定车道上本车前方 / 后方最近的车：{ ahead, behind }，各为 { gap（米，车身间距）, v（km/h）, kind } 或 null；用于自动变道判断空档
+      laneInfo(lane) {
+        let ahead = null, behind = null;
+        for (const c of traffic) {
+          const u = c.userData;
+          if (u.lane !== lane && Math.round(c.position.z / LANE) !== lane) continue;
+          const x = c.position.x;
+          if (x >= 0) { const g = x - 2.45 - u.half; if (!ahead || g < ahead.gap) ahead = { gap: g, v: u.v, kind: u.kind }; }
+          else { const g = -x - 2.35 - u.half; if (!behind || g < behind.gap) behind = { gap: g, v: u.v, kind: u.kind }; }
+        }
+        return { ahead, behind };
+      },
+      get laneBusy() { return !!(laneReq || laneMoving); },
       get lane() { return egoLane; },
       get egoOffset() { return egoZ; }, // 横向偏移（米，向右为正），模拟地图用来同步变道
       setSpeed(s) { speed = s; },

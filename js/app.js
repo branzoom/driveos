@@ -40,10 +40,10 @@
 
   // 自制轮廓的掀背/皮卡不再提供选择（程序化车身仍保留给道路上的其他车辆）
   const HIDDEN_BODIES = ['hatch', 'pickup'];
-  const bodyType = HIDDEN_BODIES.includes(store.get('body', 'sedan')) ? 'sedan' : store.get('body', 'sedan');
+  const bodyType = HIDDEN_BODIES.includes(store.get('body', 'cybertruck')) ? 'cybertruck' : store.get('body', 'cybertruck');
   const S = {
     skin: store.get('skin', 'tesla'), themePref: store.get('theme.v2', 'dark'),
-    body: bodyType, carName: ['我的掀背车', '我的皮卡'].includes(store.get('carName', '')) ? BODY_NAMES[bodyType] : store.get('carName', BODY_NAMES[bodyType]), owner: store.get('owner', 'Driver'), paint: store.get('paint', '#e9eaec'), finish: store.get('finish', '原厂漆'), tail: store.get('tail', '原厂'),
+    body: bodyType, carName: ['我的掀背车', '我的皮卡'].includes(store.get('carName', '')) ? BODY_NAMES[bodyType] : store.get('carName', BODY_NAMES[bodyType]), owner: store.get('owner', 'Tim'), paint: store.get('paint', '#e9eaec'), finish: store.get('finish', '原厂漆'), tail: store.get('tail', '原厂'),
     gear: 'P', speed: 0, cruise: 60, braking: false, ap: false, signal: null, hazard: false, limit: 60,
     battery: 78, showKm: false, odometer: 12843, trip: { km: 0, sec: 0 }, split: store.get('split', 700),
     locked: false, frunk: false, trunk: false, port: false, folded: false, childLock: false, windowLock: false, glovebox: false,
@@ -51,7 +51,7 @@
     walkLock: true, parkUnlock: true, lockSound: true, childSide: '关闭',
     brightness: 80, timeFmt: '24 小时', energyFmt: '百分比',
     accel: '标准', steering: '标准', stopMode: '保持', regen: '标准', traction: true,
-    apMode: '自动转向', offset: '+0 km/h', followDist: 3, blindCam: true, laneWarn: '警告', fsd: true,
+    apMode: '自动转向', offset: '+0 km/h', followDist: 3, blindCam: true, laneWarn: '警告', fsd: true, autoLane: store.get('autoLane', true),
     chargeLimit: 80, chargeAmps: 32, charging: false, scheduled: false, energyMul: '×10', lowWarned: 100, redRuns: 0,
     mapMode: (store.get('mapMode', 'real') === 'real') ? '真实地图' : '模拟地图', navVol: 6, avoidHwy: false, autoNav: true, trafficOn: true, chargersOn: false,
     sentry: false, overspeed: '显示', fcw: '中', pinDrive: false, updatePref: '标准',
@@ -215,6 +215,7 @@
     S.ap = on;
     if (on) { S.cruise = S.speed > 15 ? Math.round(S.speed) : S.limit; Sound.play('apOn'); banner(S.apMode === '自动转向' ? '自动辅助转向已启用' : '交通感知巡航控制已启用'); }
     else if (!silent) { Sound.play('apOff'); banner('自动辅助驾驶已退出', true); }
+    if (!on) autoLaneReset();
     syncCar(); commit('car', 'cp');
   }
   let bannerT;
@@ -223,11 +224,13 @@
     clearTimeout(bannerT); bannerT = setTimeout(() => b.classList.remove('show'), 2200);
   }
 
-  function setSignal(side) {
+  function setSignal(side, auto, urgent) {
+    if (auto) { if (S.signal) return; }
+    else if (AL.byAuto && car && car.laneBusy) { AL.byAuto = false; car.cancelLane(); } // 手动打灯：接管自动变道
     S.signal = S.signal === side ? null : side;
     Sound.play(S.signal ? 'signalOn' : 'signalOff');
     // 行驶中打灯 = 变道请求
-    if (S.signal && S.gear === 'D' && S.speed > 10 && car) car.requestLane(side === 'left' ? -1 : 1);
+    if (S.signal && S.gear === 'D' && S.speed > 10 && car) car.requestLane(side === 'left' ? -1 : 1, auto ? { auto: true, urgent: !!urgent } : undefined);
     else if (!S.signal && car) car.cancelLane();
     if (S.signal) setTimeout(() => { if (S.signal === side) { S.signal = null; syncCar(); commit('car'); } }, 8000);
     syncCar(); commit('car');
@@ -249,6 +252,67 @@
     Sound.play(S.hazard ? 'signalOn' : 'signalOff');
     banner(S.hazard ? '危险警示灯已开启' : '危险警示灯已关闭', S.hazard);
     syncCar(); commit('car', 'sheet');
+  }
+  // 自动变道（Autopilot + 自动转向 + 设置里“自动变道”开启，车速 > 25 km/h）：
+  // 慢车超车 → 超车后空档安全 3 秒返回原车道 → 遇障碍来不及停时优先变道避让；每 0.5 秒评估一次，自动变道之间冷却 7 秒
+  let alClock = 0; // 自动变道用的模拟时钟（毫秒，随仿真步进，不受页面卡顿影响）
+  const AL = { next: 0, cool: 0, ret: null, retSince: 0, glowT: -1e9, byAuto: false };
+  const alOn = () => S.ap && S.autoLane && S.apMode === '自动转向' && S.gear === 'D' && S.speed > 25 && !pull && !S.hazard;
+  function alReset() { AL.ret = null; AL.retSince = 0; AL.byAuto = false; }
+  function autoLaneReset() { if (AL.byAuto && car && car.laneBusy) car.cancelLane(); alReset(); }
+  // 目标车道空档：前方 front 米 + 接近速度×1.5 秒；后方 rear 米 + 对方追近速度×2 秒
+  function alGapOk(info, v, front, rear) {
+    const a = info.ahead, b = info.behind;
+    if (a && a.gap < front + Math.max(0, v - a.v) / 3.6 * 1.5) return false;
+    if (b && b.gap < rear + Math.max(0, b.v - v) / 3.6 * 2) return false;
+    return true;
+  }
+  // 变道受阻：只偶尔闪一下对应一侧的红光（不响铃、不刷屏）
+  function alBlocked(dir) {
+    if (alClock - AL.glowT < 8000) return; AL.glowT = alClock;
+    const side = dir < 0 ? 'left' : 'right', el = $('#glow-' + side);
+    if (el) glow(side, el.classList.contains('on'), true);
+  }
+  function alGo(dir, msg, warn, urgent) { AL.byAuto = true; banner(msg, warn); setSignal(dir < 0 ? 'left' : 'right', true, urgent); }
+  function stepAutoLane(now) {
+    if (now < AL.next) return;
+    AL.next = now + 500;
+    if (!car || !alOn()) { AL.retSince = 0; return; }
+    if (car.laneBusy || S.signal) return;
+    const lane = car.lane;
+    if (lane < -1 || lane > 1) return;
+    const v = S.speed, lead = car.getLead(), stop = car.getStop();
+    const ok = d => lane + d >= -1 && lane + d <= 1;
+    const closing = lead ? Math.max(0, v - lead.v) / 3.6 : 0;
+    // 来不及舒适停车（制动 5 m/s²）或不足 2.5 秒碰撞时间：视为紧急，无视冷却，两侧都可选，空档要求放宽
+    const critical = !!lead && closing > 1 && (lead.gap < closing * closing / 10 + 10 || lead.gap / closing < 2.5);
+    // 前车明显慢于设定速度（40 米内或 4 秒内追上，且比设定速度低 8 km/h 以上；货车 / 公交低 3 km/h；静止车辆）
+    const slow = !!lead && !stop && lead.gap < Math.max(40, closing * 4) &&
+      (lead.v < S.cruise - 8 || ((lead.kind === 'truck' || lead.kind === 'bus') && lead.v < S.cruise - 3) || lead.v < 5) && S.cruise > lead.v + 3;
+    if (critical || (slow && now >= AL.cool)) {
+      const tries = critical ? [-1, 1] : (lane === -1 ? [-1, 1] : [-1]);
+      for (const d of tries) {
+        if (!ok(d)) continue;
+        const info = car.laneInfo(lane + d);
+        // 值得变过去：那条车道前方更快、或更空；紧急时只要前方不比现在更糟
+        const a = info.ahead, better = !a || a.gap > 90 || a.v > lead.v + (critical ? 0 : 5);
+        if (!better) continue;
+        if (!alGapOk(info, v, critical ? 12 : 18, critical ? 10 : 15)) { alBlocked(d); continue; }
+        if (AL.ret == null) AL.ret = lane;
+        return alGo(d, critical ? '前方有障碍 · 自动变道避让' : '前方车辆较慢 · 自动变道超车', critical, critical);
+      }
+      return;
+    }
+    // 超车完成后返回原车道：原车道前方没有很快会追上的慢车（≥ 8 秒才追上或已远离）、后方无快车，持续 3 秒
+    if (AL.ret != null && AL.ret !== lane && now >= AL.cool) {
+      const d = Math.sign(AL.ret - lane);
+      const info = car.laneInfo(lane + d), a = info.ahead;
+      const cl = a ? Math.max(0, v - a.v) / 3.6 : 0, farOk = !a || a.gap > 120 || a.gap > 50 + cl * 8 || (a.v >= S.cruise - 8 && a.gap > 35);
+      if (ok(d) && farOk && alGapOk(info, v, 20, 15)) {
+        if (!AL.retSince) AL.retSince = now;
+        if (now - AL.retSince >= 3000) { AL.retSince = 0; return alGo(d, '已超车 · 自动返回原车道'); }
+      } else AL.retSince = 0;
+    } else if (AL.ret === lane) alReset();
   }
   // 靠边停车：打右灯逐条并入应急车道，减速停稳后打开双闪
   // mode 'arrive'：导航快到目的地时自动靠边，只并道限速，由到达逻辑停车
@@ -312,6 +376,8 @@
       if (d.status === 'edge') { Sound.play('error'); banner(d.dir > 0 && car.lane === 2 ? '已在应急车道' : `已在最${side}侧车道`, true); clearSignal(); }
       if (d.status === 'fast') { Sound.play('error'); banner('车速高于 60 km/h，不能驶入应急车道', true); clearSignal(); }
       if (d.status === 'start') banner(`正在向${side}变道`);
+      if (d.status === 'done') { if (!AL.byAuto) AL.ret = null; AL.byAuto = false; AL.cool = alClock + 7000; AL.retSince = 0; }
+      if (d.status === 'cancel' && d.auto) { AL.byAuto = false; AL.next = alClock + 1500; alBlocked(d.dir); }
       if (d.status === 'done' || d.status === 'cancel') clearSignal();
     }
   }
@@ -427,6 +493,12 @@
       if (S.ap) {
         const safe = 8 + S.followDist * S.speed / 12;
         if (lead.gap < safe) target = Math.min(target, Math.max(0, lead.v - (safe - lead.gap) * 1.5));
+        // 前方静止 / 很慢的车：按剩余距离提前减速（约 4 m/s²），来不及时加大制动（自动紧急制动）
+        if (S.speed > lead.v) {
+          const room = Math.max(0, lead.gap - 4), cv = (S.speed - lead.v) / 3.6;
+          target = Math.min(target, lead.v + Math.sqrt(2 * 4 * room) * 3.6);
+          if (cv * cv / (2 * Math.max(room, 0.5)) > 5.5) decel = Math.max(decel, 40);
+        }
       } else if (S.speed > lead.v + 3 && lead.gap / ((S.speed - lead.v) / 3.6) < 1.8) {
         if (!fcwOn) { fcwOn = true; Sound.play('warn'); glow('front', true); banner('前方碰撞预警 · 自动紧急制动', true); }
         target = Math.min(target, lead.v - 5); decel = 90; S.cruise = Math.min(S.cruise, lead.v);
@@ -501,6 +573,7 @@
       }
     }
     stepPull();
+    alClock += dt * 1000; stepAutoLane(alClock);
     // 在应急车道上行驶：Autopilot 会自动打灯并入车流；手动驾驶时定期提醒
     if (car && S.gear === 'D' && car.lane === 2 && !pull && S.speed > 10 && !S.signal) {
       if (S.ap) setSignal('left');
@@ -1169,6 +1242,7 @@
     autopilot: () => `
       ${segRow('apMode', '自动辅助驾驶功能', ['交通感知巡航', '自动转向'])}
       ${sw('fsd', '完全自动驾驶能力（模拟）', '在导航路线上自动变道、驶入驶出匝道')}
+      ${sw('autoLane', '自动变道', '前方车辆较慢时自动超车并返回原车道，遇障碍优先变道避让（需“自动转向”）')}
       ${segRow('offset', '设定速度偏移', ['+0 km/h', '+5 km/h', '+10%'])}
       <div class="row"><div class="lbl">跟车距离<span>1 = 最近，7 = 最远</span></div><div class="seg">${[1, 2, 3, 4, 5, 6, 7].map(v => `<button style="min-width:60px" class="${S.followDist === v ? 'on' : ''}" data-num="followDist" data-v="${v}">${v}</button>`).join('')}</div></div>
       ${sw('blindCam', '自动显示盲区摄像头', '打转向灯时显示侧后方画面')}
@@ -1346,7 +1420,7 @@
   // —— 网易云登录态（本机侧车 netease-api/，经 serve.py 的 /api/ne/* 转发）。
   // 扫码登录后可浏览自己的歌单 / 每日推荐，用页面自带的 <audio> 播放（和迷你播放器联动）。
   // 登录 cookie 只存在 ~/.driveos/netease-cookie.json，不在项目目录里。
-  const neGet = async (p) => { const r = await fetch('/api/ne/' + p); const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j.error || r.status), { status: r.status }); return j; };
+  const neGet = async (p) => { const r = await fetch('api/ne/' + p); const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j.error || r.status), { status: r.status }); return j; };
   const neCover = u => u ? u + (u.includes('?') ? '' : '?param=200y200') : '';
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   async function neProbe() {
@@ -1519,7 +1593,7 @@
     if (!short) return toast('没认出这个链接：请粘贴网易云的歌单 / 专辑 / 单曲链接');
     toast('正在解析分享链接…');
     try {
-      const res = await fetch('/api/netease-resolve?u=' + encodeURIComponent(short[0]));
+      const res = await fetch('api/netease-resolve?u=' + encodeURIComponent(short[0]));
       const r2 = res.ok && parseNetease((await res.json()).url);
       if (r2) return setNetease(r2);
       toast('这个分享链接没有指向歌单 / 专辑 / 单曲，可能已失效');
@@ -1654,7 +1728,7 @@
       const nav = sheet.querySelector('.ctl-nav');
       nav.querySelectorAll('[data-sec]').forEach(b => { b.style.display = b.textContent.includes(t.value.trim()) ? '' : 'none'; });
     }
-    if ('owner' in t.dataset) { S.owner = t.value.trim() || 'Driver'; store.set('owner', S.owner); renderStatus(); const ic = sheet.querySelector('.ctl-head .icons'); if (ic) ic.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.trim()) n.textContent = S.owner + ' '; }); }
+    if ('owner' in t.dataset) { S.owner = t.value.trim() || 'Tim'; store.set('owner', S.owner); renderStatus(); const ic = sheet.querySelector('.ctl-head .icons'); if (ic) ic.childNodes.forEach(n => { if (n.nodeType === 3 && n.textContent.trim()) n.textContent = S.owner + ' '; }); }
     if ('name' in t.dataset) { S.carName = t.value || BODY_NAMES[S.body]; store.set('carName', S.carName); renderCarTop(); listeners.forEach(fn => fn(S)); }
   });
   sheet.addEventListener('change', e => {
@@ -1681,6 +1755,7 @@
   })();
 
   function onSet(k) {
+    if (k === 'autoLane') { store.set('autoLane', S.autoLane); if (!S.autoLane) autoLaneReset(); }
     if (k === 'headlights' || k === 'fog') syncCar();
     if (k === 'sentry') { Sound.play(S.sentry ? 'chime' : 'tap'); toast(S.sentry ? '哨兵模式已开启' : '哨兵模式已关闭', 'sentry'); }
     if (k === 'skin') setSkin(S.skin);
